@@ -45,8 +45,10 @@ interface KiddoMedContextValue {
   signOutFamily: () => Promise<void>;
   notificationsEnabled: boolean;
   mutedMemberIds: string[];
+  notificationAdvanceMinutes: number;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   toggleMemberNotifications: (memberId: string, enabled: boolean) => Promise<void>;
+  setNotificationAdvanceMinutes: (minutes: number) => Promise<void>;
   syncError: string | null;
 }
 
@@ -68,6 +70,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [notificationsEnabled, setNotificationsEnabledState] = useState(true);
   const [mutedMemberIds, setMutedMemberIds] = useState<string[]>([]);
+  const [notificationAdvanceMinutes, setNotificationAdvanceMinutesState] = useState(0);
 
   const session = useMemo(
     () => families.find((f) => f.family_id === activeFamilyId) ?? families[0] ?? null,
@@ -121,6 +124,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
 
       setNotificationsEnabledState(prefs.enabled);
       setMutedMemberIds(prefs.mutedMemberIds);
+      setNotificationAdvanceMinutesState(prefs.advanceMinutes);
       setFamilies(stored.families);
       setActiveFamilyId(stored.activeFamilyId);
 
@@ -151,8 +155,9 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       members,
       enabled: notificationsEnabled,
       mutedMemberIds,
+      advanceMinutes: notificationAdvanceMinutes,
     });
-  }, [isReady, members, treatments, notificationsEnabled, mutedMemberIds]);
+  }, [isReady, members, treatments, notificationsEnabled, mutedMemberIds, notificationAdvanceMinutes]);
 
   // Guardar caché de lectura ante cambios de la familia activa
   useEffect(() => {
@@ -300,9 +305,13 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
         await initializeNotifications();
       }
       setNotificationsEnabledState(enabled);
-      await saveNotificationPrefs({ enabled, mutedMemberIds });
+      await saveNotificationPrefs({
+        enabled,
+        mutedMemberIds,
+        advanceMinutes: notificationAdvanceMinutes,
+      });
     },
-    [mutedMemberIds]
+    [mutedMemberIds, notificationAdvanceMinutes]
   );
 
   const toggleMemberNotifications = useCallback(
@@ -314,6 +323,20 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       await saveNotificationPrefs({
         enabled: notificationsEnabled,
         mutedMemberIds: nextMuted,
+        advanceMinutes: notificationAdvanceMinutes,
+      });
+    },
+    [mutedMemberIds, notificationsEnabled, notificationAdvanceMinutes]
+  );
+
+  const setNotificationAdvanceMinutes = useCallback(
+    async (minutes: number) => {
+      const clamped = Math.max(0, Math.min(30, Math.round(minutes)));
+      setNotificationAdvanceMinutesState(clamped);
+      await saveNotificationPrefs({
+        enabled: notificationsEnabled,
+        mutedMemberIds,
+        advanceMinutes: clamped,
       });
     },
     [mutedMemberIds, notificationsEnabled]
@@ -342,8 +365,10 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       signOutFamily,
       notificationsEnabled,
       mutedMemberIds,
+      notificationAdvanceMinutes,
       setNotificationsEnabled,
       toggleMemberNotifications,
+      setNotificationAdvanceMinutes,
       syncError,
     }),
     [
@@ -365,8 +390,10 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       signOutFamily,
       notificationsEnabled,
       mutedMemberIds,
+      notificationAdvanceMinutes,
       setNotificationsEnabled,
       toggleMemberNotifications,
+      setNotificationAdvanceMinutes,
       syncError,
     ]
   );

@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { FamilyMember, TreatmentItem } from '../types/database';
+import { formatTimeShort } from '../utils/formatting';
 
 const NOTIFICATION_MAP_KEY = 'kiddomed_notification_records_v2';
 const NOTIFICATION_PREFS_KEY = 'kiddomed_notification_prefs_v1';
@@ -16,6 +17,7 @@ interface ScheduledRecord {
 export interface NotificationPrefs {
   enabled: boolean;
   mutedMemberIds: string[];
+  advanceMinutes: number;
 }
 
 Notifications.setNotificationHandler({
@@ -38,14 +40,21 @@ function enqueueSync(task: () => Promise<void>): Promise<void> {
 export async function getNotificationPrefs(): Promise<NotificationPrefs> {
   try {
     const raw = await AsyncStorage.getItem(NOTIFICATION_PREFS_KEY);
-    if (!raw) return { enabled: true, mutedMemberIds: [] };
+    if (!raw) return { enabled: true, mutedMemberIds: [], advanceMinutes: 0 };
     const parsed = JSON.parse(raw) as Partial<NotificationPrefs>;
+    const advanceMinutes =
+      typeof parsed.advanceMinutes === 'number' &&
+      Number.isFinite(parsed.advanceMinutes) &&
+      parsed.advanceMinutes >= 0
+        ? Math.min(60, Math.round(parsed.advanceMinutes))
+        : 0;
     return {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : true,
       mutedMemberIds: Array.isArray(parsed.mutedMemberIds) ? parsed.mutedMemberIds : [],
+      advanceMinutes,
     };
   } catch {
-    return { enabled: true, mutedMemberIds: [] };
+    return { enabled: true, mutedMemberIds: [], advanceMinutes: 0 };
   }
 }
 
@@ -110,11 +119,12 @@ export function syncPrescriptionReminders(params: {
   members: FamilyMember[];
   enabled: boolean;
   mutedMemberIds: string[];
+  advanceMinutes?: number;
 }): Promise<void> {
   if (Platform.OS === 'web') return Promise.resolve();
 
   return enqueueSync(async () => {
-    const { treatments, members, enabled, mutedMemberIds } = params;
+    const { treatments, members, enabled, mutedMemberIds, advanceMinutes = 0 } = params;
 
     if (!enabled) {
       await Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
@@ -125,6 +135,7 @@ export function syncPrescriptionReminders(params: {
     const mutedSet = new Set(mutedMemberIds);
     const memberMap = new Map(members.map((m) => [m.id, m.display_name]));
     const nowMs = Date.now();
+    const safeAdvanceMins = Math.max(0, Math.round(advanceMinutes));
 
     const desired = new Map<
       string,
@@ -135,23 +146,40 @@ export function syncPrescriptionReminders(params: {
       if (tr.status !== 'active' || !tr.next_due_at) continue;
       if (mutedSet.has(tr.member_id)) continue;
 
-      const triggerDate = new Date(tr.next_due_at);
-      if (Number.isNaN(triggerDate.getTime()) || triggerDate.getTime() <= nowMs + 5000) {
+      const dueDate = new Date(tr.next_due_at);
+      const dueMs = dueDate.getTime();
+      if (Number.isNaN(dueMs) || dueMs <= nowMs + 5000) {
         continue;
       }
 
+      const triggerMs = Math.max(nowMs + 5000, dueMs - safeAdvanceMins * 60_000);
+      const triggerDate = new Date(triggerMs);
+
       const patientName = memberMap.get(tr.member_id) ?? 'Miembro';
       const isPrn = tr.frequency_type === 'prn';
-      const title = isPrn
-        ? `Intervalo seguro cumplido: ${patientName}`
-        : `Toca medicamento: ${patientName}`;
-      const body = isPrn
-        ? `Ya es seguro administrar ${tr.brand_name} (${tr.dose_text}) si persiste la fiebre o dolor.`
-        : `Aplicar ${tr.dose_text} de ${tr.brand_name}.`;
+      const dueTimeLabel = formatTimeShort(tr.next_due_at);
+
+      const title =
+        safeAdvanceMins > 0
+          ? isPrn
+            ? `En ${safeAdvanceMins} min (intervalo seguro): ${patientName}`
+            : `En ${safeAdvanceMins} min: ${patientName}`
+          : isPrn
+            ? `Intervalo seguro cumplido: ${patientName}`
+            : `Toca medicamento: ${patientName}`;
+
+      const body =
+        safeAdvanceMins > 0
+          ? isPrn
+            ? `${tr.brand_name} (${tr.dose_text}) estará disponible a las ${dueTimeLabel}.`
+            : `Toca aplicar ${tr.dose_text} de ${tr.brand_name} a las ${dueTimeLabel}.`
+          : isPrn
+            ? `Ya es seguro administrar ${tr.brand_name} (${tr.dose_text}) si persiste la fiebre o dolor.`
+            : `Aplicar ${tr.dose_text} de ${tr.brand_name}.`;
 
       desired.set(tr.id, {
         triggerDate,
-        triggerAtIso: tr.next_due_at,
+        triggerAtIso: triggerDate.toISOString(),
         title,
         body,
       });

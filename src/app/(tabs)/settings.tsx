@@ -14,6 +14,8 @@ import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { FamilySession } from '../../types/database';
 import { formatDateTimeShort } from '../../utils/formatting';
 
+const ADVANCE_MINUTES_OPTIONS = [0, 5, 10, 15, 20, 25, 30] as const;
+
 export default function SettingsScreen() {
   const router = useRouter();
   const {
@@ -26,8 +28,10 @@ export default function SettingsScreen() {
     leaveFamily,
     notificationsEnabled,
     mutedMemberIds,
+    notificationAdvanceMinutes,
     setNotificationsEnabled,
     toggleMemberNotifications,
+    setNotificationAdvanceMinutes,
   } = useKiddoMed();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
@@ -273,34 +277,74 @@ export default function SettingsScreen() {
             />
           </View>
 
-          {notificationsEnabled && members.length > 0 && (
+          {notificationsEnabled && (
             <>
               <View style={styles.switchSectionDivider} />
-              <Text style={styles.memberNotifHeader}>Por miembro familiar</Text>
-              {members.map((m, idx) => {
-                const isMemberEnabled = !mutedMemberIds.includes(m.id);
-                const dotColor = m.accent_color || colors.primary;
-                return (
-                  <View key={m.id}>
-                    <View style={styles.switchRow}>
-                      <View style={[styles.memberNotifDot, { backgroundColor: dotColor }]} />
-                      <View style={styles.switchInfo}>
-                        <Text style={styles.switchTitle}>{m.display_name}</Text>
-                      </View>
-                      <Switch
-                        value={isMemberEnabled}
-                        onValueChange={(val) => {
+              <View style={styles.advanceBlock}>
+                <View style={styles.advanceHeaderRow}>
+                  <Text style={styles.memberNotifHeader}>Anticipación del aviso</Text>
+                  <Text style={styles.advanceValueText}>
+                    {notificationAdvanceMinutes === 0
+                      ? 'A la hora exacta'
+                      : `${notificationAdvanceMinutes} min antes`}
+                  </Text>
+                </View>
+                <View style={styles.advanceChipsRow}>
+                  {ADVANCE_MINUTES_OPTIONS.map((mins) => {
+                    const active = notificationAdvanceMinutes === mins;
+                    return (
+                      <Pressable
+                        key={mins}
+                        style={[styles.advanceChip, active && styles.advanceChipActive]}
+                        onPress={() => {
                           Haptics.selectionAsync().catch(() => {});
-                          void toggleMemberNotifications(m.id, val);
+                          void setNotificationAdvanceMinutes(mins);
                         }}
-                        trackColor={{ false: colors.border, true: dotColor }}
-                        thumbColor={colors.surface}
-                      />
-                    </View>
-                    {idx < members.length - 1 && <View style={styles.switchItemDivider} />}
-                  </View>
-                );
-              })}
+                      >
+                        <Text
+                          style={[
+                            styles.advanceChipText,
+                            active && styles.advanceChipTextActive,
+                          ]}
+                        >
+                          {mins === 0 ? '0 min' : `${mins} min`}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {members.length > 0 && (
+                <>
+                  <View style={styles.switchSectionDivider} />
+                  <Text style={styles.memberNotifHeader}>Por miembro familiar</Text>
+                  {members.map((m, idx) => {
+                    const isMemberEnabled = !mutedMemberIds.includes(m.id);
+                    const dotColor = m.accent_color || colors.primary;
+                    return (
+                      <View key={m.id}>
+                        <View style={styles.switchRow}>
+                          <View style={[styles.memberNotifDot, { backgroundColor: dotColor }]} />
+                          <View style={styles.switchInfo}>
+                            <Text style={styles.switchTitle}>{m.display_name}</Text>
+                          </View>
+                          <Switch
+                            value={isMemberEnabled}
+                            onValueChange={(val) => {
+                              Haptics.selectionAsync().catch(() => {});
+                              void toggleMemberNotifications(m.id, val);
+                            }}
+                            trackColor={{ false: colors.border, true: dotColor }}
+                            thumbColor={colors.surface}
+                          />
+                        </View>
+                        {idx < members.length - 1 && <View style={styles.switchItemDivider} />}
+                      </View>
+                    );
+                  })}
+                </>
+              )}
             </>
           )}
         </Card>
@@ -618,5 +662,45 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     marginHorizontal: 9,
+  },
+  advanceBlock: {
+    paddingVertical: spacing.xs,
+  },
+  advanceHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  advanceValueText: {
+    ...typography.footnote,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  advanceChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    paddingBottom: spacing.xs,
+  },
+  advanceChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  advanceChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  advanceChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  advanceChipTextActive: {
+    color: colors.textInverse,
   },
 });

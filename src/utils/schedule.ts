@@ -49,9 +49,12 @@ export interface TreatmentScheduleResult {
   prnItems: PrnTreatmentItem[];
 }
 
-function toHalfHourSlotKey(date: Date): string {
-  const hh = String(date.getHours()).padStart(2, '0');
-  const mm = date.getMinutes() < 30 ? '00' : '30';
+const FIFTEEN_MIN_MS = 15 * 60_000;
+
+function toQuarterHourSlotKey(date: Date): string {
+  const rounded = new Date(Math.round(date.getTime() / FIFTEEN_MIN_MS) * FIFTEEN_MIN_MS);
+  const hh = String(rounded.getHours()).padStart(2, '0');
+  const mm = String(rounded.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
 }
 
@@ -68,7 +71,7 @@ function formatDayHeading(date: Date, dayOffset: number): string {
 
 /**
  * Builds the 7-day vertical schedule combining already-administered doses from today
- * and projected upcoming doses, grouped by day, 30-minute time slot, and member.
+ * and projected upcoming doses, grouped by day, 15-minute time slot, and member.
  */
 export function buildTreatmentSchedule(params: {
   treatments: TreatmentItem[];
@@ -230,7 +233,7 @@ export function buildTreatmentSchedule(params: {
   for (const dose of timelineDoses) {
     const d = new Date(dose.dueAtMs);
     const dateKey = toDateKey(d);
-    const slotKey = toHalfHourSlotKey(d);
+    const slotKey = toQuarterHourSlotKey(d);
 
     let slotMap = dayBuckets.get(dateKey);
     if (!slotMap) {

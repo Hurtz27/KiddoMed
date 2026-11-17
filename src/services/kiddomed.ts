@@ -457,6 +457,27 @@ export async function suspendTreatmentItem(params: {
   });
 }
 
+const FIFTEEN_MIN_MS = 15 * 60_000;
+
+function roundToNearest15MinutesIso(ms: number): string {
+  const rounded = Math.round(ms / FIFTEEN_MIN_MS) * FIFTEEN_MIN_MS;
+  return new Date(rounded).toISOString();
+}
+
+function computeNextDueIso(
+  treatment: Pick<TreatmentItem, 'frequency_type' | 'frequency_value' | 'min_safety_hours'>,
+  baseMs: number
+): string {
+  if (treatment.frequency_type === 'hours') {
+    return roundToNearest15MinutesIso(baseMs + treatment.frequency_value * 3600000);
+  }
+  if (treatment.frequency_type === 'days') {
+    return roundToNearest15MinutesIso(baseMs + treatment.frequency_value * 86400000);
+  }
+  // PRN: marca cuándo vuelve a ser seguro aplicarlo si persiste la fiebre/síntoma (sin redondear)
+  return new Date(baseMs + treatment.min_safety_hours * 3600000).toISOString();
+}
+
 export async function registerDoseTransaction(params: {
   familyId: string;
   treatmentId: string;
@@ -481,8 +502,13 @@ export async function registerDoseTransaction(params: {
     };
 
     const administeredMs = new Date(params.administeredAtIso).getTime();
+    const scheduledDueMs = treatment.next_due_at
+      ? new Date(treatment.next_due_at).getTime()
+      : null;
+    const isAtOrAfterRoundedSchedule =
+      scheduledDueMs !== null && !Number.isNaN(scheduledDueMs) && administeredMs >= scheduledDueMs;
 
-    if (treatment.last_administered_at && !params.forceOverride) {
+    if (treatment.last_administered_at && !params.forceOverride && !isAtOrAfterRoundedSchedule) {
       const lastMs = new Date(treatment.last_administered_at).getTime();
       const diffHours = (administeredMs - lastMs) / 3600000;
       if (diffHours < treatment.min_safety_hours && diffHours >= 0) {
@@ -495,15 +521,7 @@ export async function registerDoseTransaction(params: {
       }
     }
 
-    let nextDueIso: string | null = null;
-    if (treatment.frequency_type === 'hours') {
-      nextDueIso = new Date(administeredMs + treatment.frequency_value * 3600000).toISOString();
-    } else if (treatment.frequency_type === 'days') {
-      nextDueIso = new Date(administeredMs + treatment.frequency_value * 86400000).toISOString();
-    } else {
-      // PRN: marca cuándo vuelve a ser seguro aplicarlo si persiste la fiebre/síntoma
-      nextDueIso = new Date(administeredMs + treatment.min_safety_hours * 3600000).toISOString();
-    }
+    const nextDueIso = computeNextDueIso(treatment, administeredMs);
 
     const isPastEnd =
       treatment.end_date !== null &&
@@ -577,17 +595,9 @@ export async function revertDoseLogTransaction(params: {
     if (!tSnap.exists()) return;
     const treatment = tSnap.data() as TreatmentItem;
 
-    let nextDueIso: string | null = null;
-    if (latestLog) {
-      const lastMs = new Date(latestLog.administered_at).getTime();
-      if (treatment.frequency_type === 'hours') {
-        nextDueIso = new Date(lastMs + treatment.frequency_value * 3600000).toISOString();
-      } else if (treatment.frequency_type === 'days') {
-        nextDueIso = new Date(lastMs + treatment.frequency_value * 86400000).toISOString();
-      } else {
-        nextDueIso = new Date(lastMs + treatment.min_safety_hours * 3600000).toISOString();
-      }
-    }
+    const nextDueIso = latestLog
+      ? computeNextDueIso(treatment, new Date(latestLog.administered_at).getTime())
+      : null;
 
     tx.update(treatmentRef, {
       doses_administered_count: remainingLogs.length,
