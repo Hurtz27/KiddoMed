@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,6 +19,7 @@ import {
 } from '../services/kiddomed';
 import { colors, radius, spacing, typography } from '../theme/tokens';
 import { Illness, IllnessStatus } from '../types/database';
+import { CrossPlatformDateTimePicker } from './ui/CrossPlatformDateTimePicker';
 import { PillButton } from './ui/PillButton';
 
 interface IllnessFormProps {
@@ -148,7 +148,7 @@ export function IllnessForm({
         {!readOnly && <Ionicons name="calendar-outline" size={18} color={colors.textTertiary} />}
       </Pressable>
       {showPicker && !readOnly && (
-        <DateTimePicker
+        <CrossPlatformDateTimePicker
           value={diagnosedAt}
           mode="date"
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}

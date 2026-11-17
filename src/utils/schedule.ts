@@ -155,14 +155,28 @@ export function buildTreatmentSchedule(params: {
     let cursorMs: number;
     let firstIsImmediate = true;
 
-    if (nextDueMs === null || nextDueMs <= nowMs) {
-      const dueIso = tr.next_due_at ?? new Date(nowMs).toISOString();
+    if (nextDueMs === null) {
       overdueDoses.push({
         id: `${tr.id}-overdue`,
         treatment: tr,
         member,
-        dueAtIso: dueIso,
-        dueAtMs: nextDueMs ?? nowMs,
+        dueAtIso: new Date(nowMs).toISOString(),
+        dueAtMs: nowMs,
+        status: 'pending',
+        isImmediateNext: true,
+        isOverdue: true,
+      });
+      // Do not project future calendar events until the first dose is applied
+      continue;
+    }
+
+    if (nextDueMs <= nowMs) {
+      overdueDoses.push({
+        id: `${tr.id}-overdue`,
+        treatment: tr,
+        member,
+        dueAtIso: tr.next_due_at ?? new Date(nowMs).toISOString(),
+        dueAtMs: nextDueMs,
         status: 'pending',
         isImmediateNext: true,
         isOverdue: true,

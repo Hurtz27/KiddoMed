@@ -1,4 +1,3 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -12,13 +11,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { CrossPlatformDateTimePicker } from '../../components/ui/CrossPlatformDateTimePicker';
 import { useKiddoMed } from '../../context/KiddoMedContext';
 import {
   createTreatmentItemRecord,
   updateTreatmentItemRecord,
 } from '../../services/kiddomed';
-import { colors } from '../../theme/tokens';
-import { FrequencyType, TreatmentItemType } from '../../types/database';
+import { colors, radius, spacing } from '../../theme/tokens';
+import { FrequencyType, TreatmentItemType, TreatmentStatus } from '../../types/database';
 import { calculateEndDateIso, formatDateOnly } from '../../utils/formatting';
 
 export default function AddOrEditTreatmentModal() {
@@ -74,6 +74,7 @@ export default function AddOrEditTreatmentModal() {
     source ? String(source.min_safety_hours) : '6'
   );
   const [notes, setNotes] = useState(source?.notes ?? '');
+  const [status, setStatus] = useState<TreatmentStatus>(existing?.status ?? 'active');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -132,6 +133,7 @@ export default function AddOrEditTreatmentModal() {
           frequencyLabel: freqLabel,
           minSafetyHours: !Number.isNaN(safetyNum) && safetyNum > 0 ? safetyNum : 4,
           notes: notes || null,
+          status,
         });
       } else {
         if (!memberId || !illnessId) return;
@@ -238,7 +240,7 @@ export default function AddOrEditTreatmentModal() {
       )}
 
       {showStartPicker && (
-        <DateTimePicker
+        <CrossPlatformDateTimePicker
           value={startDate}
           mode="date"
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
@@ -301,6 +303,52 @@ export default function AddOrEditTreatmentModal() {
         value={minSafetyHours}
         onChangeText={setMinSafetyHours}
       />
+
+      {isEditing && (
+        <>
+          <Text style={styles.label}>Estado</Text>
+          <View style={styles.statusRow}>
+            {(
+              [
+                { value: 'active', label: 'Activo' },
+                { value: 'suspended', label: 'Suspendido' },
+                { value: 'completed', label: 'Completado' },
+              ] as const
+            ).map((opt) => {
+              const active = status === opt.value;
+              return (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => setStatus(opt.value)}
+                  style={[
+                    styles.statusOption,
+                    active &&
+                      (opt.value === 'active'
+                        ? styles.statusActive
+                        : opt.value === 'suspended'
+                        ? styles.statusSuspended
+                        : styles.statusCompleted),
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusOptionText,
+                      active &&
+                        (opt.value === 'active'
+                          ? styles.statusActiveText
+                          : opt.value === 'suspended'
+                          ? styles.statusSuspendedText
+                          : styles.statusCompletedText),
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      )}
 
       <Text style={styles.label}>Notas (Opcional)</Text>
       <TextInput
@@ -368,6 +416,45 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     fontSize: 12,
     fontWeight: '700',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  statusOption: {
+    flex: 1,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+  },
+  statusActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  statusSuspended: {
+    borderColor: colors.dangerBorder,
+    backgroundColor: colors.dangerSoft,
+  },
+  statusCompleted: {
+    borderColor: colors.success,
+    backgroundColor: colors.successSoft,
+  },
+  statusOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  statusActiveText: {
+    color: colors.primary,
+  },
+  statusSuspendedText: {
+    color: colors.dangerText,
+  },
+  statusCompletedText: {
+    color: colors.successText,
   },
   saveBtn: {
     backgroundColor: colors.primary,

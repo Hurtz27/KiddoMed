@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Updates from 'expo-updates';
+import React, { useState } from 'react';
+import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '../../components/ui/Card';
 import { GroupedListRow } from '../../components/ui/GroupedListRow';
@@ -10,6 +12,7 @@ import { PillButton } from '../../components/ui/PillButton';
 import { useKiddoMed } from '../../context/KiddoMedContext';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { FamilySession } from '../../types/database';
+import { formatDateTimeShort } from '../../utils/formatting';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -21,7 +24,64 @@ export default function SettingsScreen() {
     members,
     switchFamily,
     leaveFamily,
+    notificationsEnabled,
+    mutedMemberIds,
+    setNotificationsEnabled,
+    toggleMemberNotifications,
   } = useKiddoMed();
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
+
+  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+  const shortUpdateId = Updates.updateId ? Updates.updateId.slice(0, 8) : null;
+  const updateCreatedLabel = Updates.createdAt
+    ? formatDateTimeShort(Updates.createdAt.toISOString())
+    : null;
+
+  async function handleCheckForUpdate() {
+    if (isCheckingUpdate) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+
+    if (Platform.OS === 'web' || __DEV__ || !Updates.isEnabled) {
+      setUpdateStatusMsg('Solo disponible en compilaciones instaladas (APK/IPA).');
+      return;
+    }
+
+    setIsCheckingUpdate(true);
+    setUpdateStatusMsg('Buscando actualizaciones...');
+    try {
+      const check = await Updates.checkForUpdateAsync();
+      if (!check.isAvailable) {
+        setUpdateStatusMsg('Ya tienes la última versión.');
+        return;
+      }
+
+      setUpdateStatusMsg('Descargando nueva actualización...');
+      const fetchResult = await Updates.fetchUpdateAsync();
+      if (fetchResult.isNew) {
+        setUpdateStatusMsg('Nueva versión lista. Reinicia para aplicar.');
+        Alert.alert(
+          'Actualización lista',
+          'Se descargó una nueva versión. ¿Deseas reiniciar la app para aplicarla?',
+          [
+            { text: 'Después', style: 'cancel' },
+            {
+              text: 'Reiniciar ahora',
+              onPress: () => {
+                void Updates.reloadAsync();
+              },
+            },
+          ]
+        );
+      } else {
+        setUpdateStatusMsg('Ya tienes la última versión.');
+      }
+    } catch {
+      setUpdateStatusMsg('No se pudo verificar actualizaciones.');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  }
 
   function handleSelectFamily(familyId: string) {
     if (familyId === session?.family_id) return;
@@ -188,6 +248,63 @@ export default function SettingsScreen() {
           />
         </Card>
 
+        <Text style={styles.sectionLabel}>Notificaciones</Text>
+        <Card style={styles.groupedCard}>
+          <View style={styles.switchRow}>
+            <View style={[styles.switchIconWrap, { backgroundColor: colors.primary }]}>
+              <Ionicons name="notifications" size={18} color={colors.textInverse} />
+            </View>
+            <View style={styles.switchInfo}>
+              <Text style={styles.switchTitle}>Recordatorios de dosis</Text>
+              <Text style={styles.switchSub}>
+                {notificationsEnabled
+                  ? 'Activos en este dispositivo'
+                  : 'Desactivados en este dispositivo'}
+              </Text>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={(val) => {
+                Haptics.selectionAsync().catch(() => {});
+                void setNotificationsEnabled(val);
+              }}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={colors.surface}
+            />
+          </View>
+
+          {notificationsEnabled && members.length > 0 && (
+            <>
+              <View style={styles.switchSectionDivider} />
+              <Text style={styles.memberNotifHeader}>Por miembro familiar</Text>
+              {members.map((m, idx) => {
+                const isMemberEnabled = !mutedMemberIds.includes(m.id);
+                const dotColor = m.accent_color || colors.primary;
+                return (
+                  <View key={m.id}>
+                    <View style={styles.switchRow}>
+                      <View style={[styles.memberNotifDot, { backgroundColor: dotColor }]} />
+                      <View style={styles.switchInfo}>
+                        <Text style={styles.switchTitle}>{m.display_name}</Text>
+                      </View>
+                      <Switch
+                        value={isMemberEnabled}
+                        onValueChange={(val) => {
+                          Haptics.selectionAsync().catch(() => {});
+                          void toggleMemberNotifications(m.id, val);
+                        }}
+                        trackColor={{ false: colors.border, true: dotColor }}
+                        thumbColor={colors.surface}
+                      />
+                    </View>
+                    {idx < members.length - 1 && <View style={styles.switchItemDivider} />}
+                  </View>
+                );
+              })}
+            </>
+          )}
+        </Card>
+
         <Text style={styles.sectionLabel}>Sincronización</Text>
         <Card style={styles.groupedCard}>
           <GroupedListRow
@@ -199,6 +316,76 @@ export default function SettingsScreen() {
             iconBg={isOffline ? colors.danger : colors.success}
             iconColor={colors.textInverse}
             showDivider={false}
+          />
+        </Card>
+
+        <Text style={styles.sectionLabel}>Versión de la App</Text>
+        <Card style={styles.groupedCard}>
+          <View style={styles.appBrandRow}>
+            <Image
+              source={require('../../../assets/icon.png')}
+              style={styles.appBrandLogo}
+              accessibilityLabel="Logo de HL KiddoMed"
+            />
+            <View style={styles.appBrandInfo}>
+              <Text style={styles.appBrandName}>HL KiddoMed</Text>
+              <Text style={styles.appBrandSub}>
+                Historial médico y tratamientos familiares
+              </Text>
+            </View>
+          </View>
+          <View style={styles.appBrandDivider} />
+          <GroupedListRow
+            title="Versión instalada"
+            subtitle={
+              Updates.channel
+                ? `Canal: ${Updates.channel}`
+                : __DEV__
+                  ? 'Modo desarrollo'
+                  : 'Compilación local'
+            }
+            rightText={`v${appVersion}`}
+            icon="information-circle"
+            iconBg={colors.primary}
+            iconColor={colors.textInverse}
+          />
+          <GroupedListRow
+            title="Actualización OTA"
+            subtitle={
+              Updates.isEnabled
+                ? shortUpdateId
+                  ? `Publicado: ${updateCreatedLabel ?? 'Fecha desconocida'}${
+                      Updates.isEmbeddedLaunch ? ' (integrada)' : ''
+                    }`
+                  : Updates.isEmbeddedLaunch
+                    ? 'Versión integrada en el binario'
+                    : 'Sin ID de actualización'
+                : __DEV__
+                  ? 'Desactivado en modo desarrollo'
+                  : 'No disponible en este entorno'
+            }
+            rightText={
+              shortUpdateId ??
+              (Updates.isEnabled
+                ? Updates.runtimeVersion
+                  ? `RT ${Updates.runtimeVersion}`
+                  : 'Integrada'
+                : 'Local')
+            }
+            icon="git-commit"
+            iconBg="#5856D6"
+            iconColor={colors.textInverse}
+          />
+          <GroupedListRow
+            title={isCheckingUpdate ? 'Buscando actualización...' : 'Buscar actualizaciones'}
+            subtitle={updateStatusMsg ?? 'Toca para verificar si hay una versión nueva'}
+            rightText={isCheckingUpdate ? '...' : 'Verificar'}
+            rightTextColor={colors.primary}
+            icon="refresh"
+            iconBg="#0EA5E9"
+            iconColor={colors.textInverse}
+            showDivider={false}
+            onPress={() => void handleCheckForUpdate()}
           />
         </Card>
 
@@ -352,7 +539,84 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     marginBottom: spacing.xl,
   },
+  appBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  appBrandLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+  },
+  appBrandInfo: {
+    flex: 1,
+  },
+  appBrandName: {
+    ...typography.headline,
+  },
+  appBrandSub: {
+    ...typography.footnote,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  appBrandDivider: {
+    height: 0.5,
+    backgroundColor: colors.border,
+    marginLeft: 44 + spacing.md,
+  },
   addFamilyBtn: {
     marginTop: spacing.xs,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  switchIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  switchInfo: {
+    flex: 1,
+  },
+  switchTitle: {
+    ...typography.body,
+    color: colors.textPrimary,
+  },
+  switchSub: {
+    ...typography.footnote,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  switchSectionDivider: {
+    height: 0.5,
+    backgroundColor: colors.border,
+    marginVertical: spacing.xs,
+  },
+  switchItemDivider: {
+    height: 0.5,
+    backgroundColor: colors.border,
+    marginLeft: 26,
+  },
+  memberNotifHeader: {
+    ...typography.footnote,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    color: colors.textTertiary,
+    marginTop: spacing.xs,
+    marginBottom: 2,
+  },
+  memberNotifDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginHorizontal: 9,
   },
 });

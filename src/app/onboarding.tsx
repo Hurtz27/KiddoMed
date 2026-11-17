@@ -1,6 +1,5 @@
-import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FamilyAccessForm } from '../components/FamilyAccessForm';
 import { useKiddoMed } from '../context/KiddoMedContext';
@@ -21,9 +20,11 @@ export default function OnboardingScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <View style={styles.iconBadge}>
-              <Ionicons name="medkit" size={34} color={colors.primary} />
-            </View>
+            <Image
+              source={require('../../assets/icon.png')}
+              style={styles.logo}
+              accessibilityLabel="Logo de HL KiddoMed"
+            />
             <Text style={typography.largeTitle}>HL KiddoMed</Text>
             <Text style={styles.subtitle}>
               Historial médico y tratamientos familiares sincronizados en tiempo real.
@@ -50,13 +51,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.xl,
   },
-  iconBadge: {
-    width: 72,
-    height: 72,
+  logo: {
+    width: 76,
+    height: 76,
     borderRadius: radius.xl,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: spacing.md,
   },
   subtitle: {

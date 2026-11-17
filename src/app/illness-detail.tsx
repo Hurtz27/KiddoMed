@@ -3,7 +3,6 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -16,7 +15,6 @@ import { IllnessForm } from '../components/IllnessForm';
 import { Card } from '../components/ui/Card';
 import { PillButton } from '../components/ui/PillButton';
 import { useKiddoMed } from '../context/KiddoMedContext';
-import { suspendTreatmentItem } from '../services/kiddomed';
 import { colors, radius, shadows, spacing, typography } from '../theme/tokens';
 import { TreatmentItem } from '../types/database';
 import { formatDateOnly } from '../utils/formatting';
@@ -27,7 +25,7 @@ export default function IllnessDetailScreen() {
   const { illnessId } = useLocalSearchParams<{ illnessId?: string }>();
   const router = useRouter();
   const navigation = useNavigation();
-  const { session, isCaregiver, members, illnesses, treatments } = useKiddoMed();
+  const { isCaregiver, members, illnesses, treatments } = useKiddoMed();
 
   const [activeTab, setActiveTab] = useState<DetailTab>('details');
   const [recentModalVisible, setRecentModalVisible] = useState(false);
@@ -68,27 +66,6 @@ export default function IllnessDetailScreen() {
     }
     return list;
   }, [treatments]);
-
-  function handleSuspendTreatment(treatmentId: string, name: string) {
-    if (!session) return;
-    Alert.alert(
-      `Suspender ${name}`,
-      'El medicamento dejará de mostrarse como pendiente pero conservará su historial de tomas.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Suspender',
-          style: 'destructive',
-          onPress: () =>
-            void suspendTreatmentItem({
-              familyId: session.family_id,
-              treatmentId,
-              reason: 'Suspendido por indicación / cambio de tratamiento',
-            }),
-        },
-      ]
-    );
-  }
 
   function handleCopyRecent(template: TreatmentItem) {
     if (!illness) return;
@@ -181,91 +158,75 @@ export default function IllnessDetailScreen() {
                 </Text>
               </Card>
             ) : (
-              illnessTreatments.map((tr) => {
-                const isActive = tr.status === 'active';
-                return (
-                  <Pressable
-                    key={tr.id}
-                    disabled={!isCaregiver}
-                    onPress={() => {
-                      Haptics.selectionAsync().catch(() => {});
-                      router.push({
-                        pathname: '/modals/add-treatment',
-                        params: {
-                          memberId: illness.member_id,
-                          illnessId: illness.id,
-                          treatmentId: tr.id,
-                        },
-                      });
-                    }}
-                    style={({ pressed }) => [pressed && isCaregiver && styles.pressed]}
+              illnessTreatments.map((tr) => (
+                <Pressable
+                  key={tr.id}
+                  disabled={!isCaregiver}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    router.push({
+                      pathname: '/modals/add-treatment',
+                      params: {
+                        memberId: illness.member_id,
+                        illnessId: illness.id,
+                        treatmentId: tr.id,
+                      },
+                    });
+                  }}
+                  style={({ pressed }) => [pressed && isCaregiver && styles.pressed]}
+                >
+                  <Card
+                    style={[
+                      styles.trCard,
+                      tr.status !== 'active' && styles.trCardInactive,
+                    ]}
                   >
-                    <Card
-                      style={[
-                        styles.trCard,
-                        tr.status !== 'active' && styles.trCardInactive,
-                      ]}
-                    >
-                      <View style={styles.trHeader}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.trName}>{tr.brand_name}</Text>
-                          {tr.active_ingredients ? (
-                            <Text style={styles.trIngredients}>{tr.active_ingredients}</Text>
-                          ) : null}
-                        </View>
-                        <View style={styles.trHeaderRight}>
-                          <View
-                            style={[
-                              styles.trStatusBadge,
-                              tr.status === 'suspended' && styles.trStatusSuspended,
-                              tr.status === 'completed' && styles.trStatusCompleted,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.trStatusText,
-                                tr.status === 'suspended' && styles.trStatusTextSuspended,
-                                tr.status === 'completed' && styles.trStatusTextCompleted,
-                              ]}
-                            >
-                              {tr.status === 'active'
-                                ? 'Activo'
-                                : tr.status === 'suspended'
-                                ? 'Suspendido'
-                                : 'Completado'}
-                            </Text>
-                          </View>
-                          {isCaregiver && (
-                            <Ionicons
-                              name="create-outline"
-                              size={16}
-                              color={colors.textTertiary}
-                            />
-                          )}
-                        </View>
-                      </View>
-
-                      <Text style={styles.trMeta}>
-                        {tr.dose_text} · {tr.frequency_label}
-                        {tr.end_date ? ` · Hasta ${formatDateOnly(tr.end_date)}` : ''}
+                    <View style={styles.trHeader}>
+                      <Text style={styles.trTitleRow} numberOfLines={1} ellipsizeMode="tail">
+                        <Text style={styles.trName}>{tr.brand_name}</Text>
+                        {tr.active_ingredients ? (
+                          <Text style={styles.trIngredients}>
+                            {' · '}
+                            {tr.active_ingredients}
+                          </Text>
+                        ) : null}
                       </Text>
+                      <View
+                        style={[
+                          styles.trStatusBadge,
+                          tr.status === 'suspended' && styles.trStatusSuspended,
+                          tr.status === 'completed' && styles.trStatusCompleted,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.trStatusText,
+                            tr.status === 'suspended' && styles.trStatusTextSuspended,
+                            tr.status === 'completed' && styles.trStatusTextCompleted,
+                          ]}
+                        >
+                          {tr.status === 'active'
+                            ? 'Activo'
+                            : tr.status === 'suspended'
+                            ? 'Suspendido'
+                            : 'Completado'}
+                        </Text>
+                      </View>
+                    </View>
 
-                      {tr.notes ? <Text style={styles.trNotes}>{tr.notes}</Text> : null}
+                    <Text style={styles.trMeta} numberOfLines={1}>
+                      {tr.dose_text} · {tr.frequency_label}
+                      {tr.end_date ? ` · Hasta ${formatDateOnly(tr.end_date)}` : ''}
+                    </Text>
 
-                      {isCaregiver && isActive && (
-                        <View style={styles.trFooter}>
-                          <Pressable
-                            onPress={() => handleSuspendTreatment(tr.id, tr.brand_name)}
-                            style={styles.suspendBtn}
-                          >
-                            <Text style={styles.suspendText}>Suspender</Text>
-                          </Pressable>
-                        </View>
-                      )}
-                    </Card>
-                  </Pressable>
-                );
-              })
+                    {tr.notes ? (
+                      <Text style={styles.trNotes} numberOfLines={2}>
+                        {tr.notes}
+                      </Text>
+                    ) : null}
+                  </Card>
+                </Pressable>
+              ))
             )}
           </View>
         )}
@@ -429,7 +390,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
   },
   treatmentsSection: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   treatmentActions: {
     gap: spacing.sm,
@@ -450,7 +411,9 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
   },
   trCard: {
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
   },
   trCardInactive: {
     opacity: 0.72,
@@ -461,27 +424,26 @@ const styles = StyleSheet.create({
   trHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-  },
-  trHeaderRight: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs + 2,
+    gap: spacing.md,
+  },
+  trTitleRow: {
+    flex: 1,
+    minWidth: 0,
   },
   trName: {
     ...typography.headline,
-    fontSize: 16,
+    fontSize: 15,
   },
   trIngredients: {
     ...typography.footnote,
     color: colors.textSecondary,
-    marginTop: 2,
   },
   trStatusBadge: {
+    flexShrink: 0,
     backgroundColor: colors.primarySoft,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     borderRadius: radius.pill,
   },
   trStatusSuspended: {
@@ -504,31 +466,13 @@ const styles = StyleSheet.create({
   trMeta: {
     ...typography.subhead,
     ...typography.tabularNums,
-    marginTop: spacing.sm,
+    fontSize: 13,
+    marginTop: spacing.xs,
   },
   trNotes: {
     ...typography.footnote,
     color: colors.textTertiary,
-    marginTop: spacing.xs + 2,
-  },
-  trFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: spacing.sm + 2,
-    paddingTop: spacing.sm,
-    borderTopWidth: 0.5,
-    borderTopColor: colors.border,
-  },
-  suspendBtn: {
-    backgroundColor: colors.dangerSoft,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-  },
-  suspendText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.dangerText,
+    marginTop: 2,
   },
   bottomBarSafe: {
     backgroundColor: colors.surface,

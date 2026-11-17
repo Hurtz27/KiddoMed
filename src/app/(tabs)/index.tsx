@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -165,10 +166,17 @@ export default function TreatmentScheduleScreen() {
                   <Text
                     style={[styles.slotMedBrand, done && styles.slotMedBrandDone]}
                     numberOfLines={1}
+                    ellipsizeMode="tail"
                   >
                     {dose.treatment.brand_name}
                   </Text>
-                  <Text style={styles.slotMedDose}>{dose.treatment.dose_text}</Text>
+                  <Text
+                    style={styles.slotMedDose}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {dose.treatment.dose_text}
+                  </Text>
                 </View>
                 {dose.treatment.active_ingredients && (
                   <Text style={styles.slotMedActive} numberOfLines={1}>
@@ -192,11 +200,18 @@ export default function TreatmentScheduleScreen() {
       >
         {/* Cabecera */}
         <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={typography.largeTitle}>Tratamiento</Text>
-            <Text style={styles.familySub}>
-              {session?.family_name ?? 'Agenda de dosis'}
-            </Text>
+          <View style={styles.headerTitleGroup}>
+            <Image
+              source={require('../../../assets/icon.png')}
+              style={styles.headerLogo}
+              accessibilityLabel="HL KiddoMed"
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={typography.largeTitle}>Tratamiento</Text>
+              <Text style={styles.familySub}>
+                {session?.family_name ?? 'Agenda de dosis'}
+              </Text>
+            </View>
           </View>
           <View style={styles.headerActions}>
             {fallbackMember && (
@@ -211,21 +226,6 @@ export default function TreatmentScheduleScreen() {
                 ) : (
                   <Ionicons name="share-outline" size={20} color={colors.primary} />
                 )}
-              </Pressable>
-            )}
-            {isCaregiver && fallbackMember && (
-              <Pressable
-                style={styles.addBtn}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  router.push({
-                    pathname: '/modals/add-illness',
-                    params: { memberId: fallbackMember.id },
-                  });
-                }}
-              >
-                <Ionicons name="add" size={18} color={colors.textInverse} />
-                <Text style={styles.addBtnText}>Nuevo</Text>
               </Pressable>
             )}
           </View>
@@ -546,6 +546,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.md,
   },
+  headerTitleGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  headerLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.md,
+  },
   familySub: {
     ...typography.footnote,
     marginTop: 2,
@@ -563,20 +574,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...shadows.pill,
-  },
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-  },
-  addBtnText: {
-    color: colors.textInverse,
-    fontSize: 13,
-    fontWeight: '700',
   },
   filterBleed: {
     marginHorizontal: -spacing.lg,
@@ -780,6 +777,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textPrimary,
     flex: 1,
+    minWidth: 0,
   },
   slotMedBrandDone: {
     color: colors.textSecondary,
@@ -789,6 +787,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
+    maxWidth: '42%',
+    flexShrink: 1,
+    textAlign: 'right',
   },
   slotMedActive: {
     fontSize: 11,

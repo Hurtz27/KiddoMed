@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -13,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { CrossPlatformDateTimePicker } from '../../components/ui/CrossPlatformDateTimePicker';
 import { useKiddoMed } from '../../context/KiddoMedContext';
 import { createFamilyMember, updateFamilyMember } from '../../services/kiddomed';
 import { colors, getFirstAvailableMemberColor, MEMBER_COLOR_PALETTE } from '../../theme/tokens';
@@ -175,7 +175,7 @@ export default function AddOrEditMemberModal() {
             <Text style={styles.dateText}>{birthDate.toLocaleDateString()}</Text>
           </Pressable>
           {showPicker && (
-            <DateTimePicker
+            <CrossPlatformDateTimePicker
               value={birthDate}
               mode="date"
               display={Platform.OS === 'ios' ? 'spinner' : 'default'}

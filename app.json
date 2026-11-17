@@ -3,10 +3,11 @@
     "name": "HL KiddoMed",
     "slug": "hl-kiddomed",
     "scheme": "kiddomed",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "platforms": [
       "ios",
-      "android"
+      "android",
+      "web"
     ],
     "runtimeVersion": {
       "policy": "appVersion"
@@ -41,6 +42,11 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/icon.png"
     },
     "extra": {
       "router": {},

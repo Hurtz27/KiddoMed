@@ -11,9 +11,10 @@ import {
 } from '../services/cache';
 import { ensureAnonymousAuth } from '../services/kiddomed';
 import {
-  cancelPrescriptionReminder,
+  getNotificationPrefs,
   initializeNotifications,
-  schedulePrescriptionReminder,
+  saveNotificationPrefs,
+  syncPrescriptionReminders,
 } from '../services/notifications';
 import {
   DoseLog,
@@ -42,6 +43,10 @@ interface KiddoMedContextValue {
   switchFamily: (familyId: string) => Promise<void>;
   leaveFamily: (familyId: string) => Promise<void>;
   signOutFamily: () => Promise<void>;
+  notificationsEnabled: boolean;
+  mutedMemberIds: string[];
+  setNotificationsEnabled: (enabled: boolean) => Promise<void>;
+  toggleMemberNotifications: (memberId: string, enabled: boolean) => Promise<void>;
   syncError: string | null;
 }
 
@@ -61,6 +66,8 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
   const [doseLogs, setDoseLogs] = useState<DoseLog[]>([]);
   const [symptomLogs, setSymptomLogs] = useState<SymptomLog[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [notificationsEnabled, setNotificationsEnabledState] = useState(true);
+  const [mutedMemberIds, setMutedMemberIds] = useState<string[]>([]);
 
   const session = useMemo(
     () => families.find((f) => f.family_id === activeFamilyId) ?? families[0] ?? null,
@@ -99,14 +106,21 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     async function bootstrap() {
-      await initializeNotifications();
-      const stored = await loadFamiliesState();
+      const [prefs, stored] = await Promise.all([
+        getNotificationPrefs(),
+        loadFamiliesState(),
+      ]);
+      if (prefs.enabled) {
+        await initializeNotifications();
+      }
       const cached = stored.activeFamilyId
         ? await loadReadCache(stored.activeFamilyId)
         : null;
 
       if (!mounted) return;
 
+      setNotificationsEnabledState(prefs.enabled);
+      setMutedMemberIds(prefs.mutedMemberIds);
       setFamilies(stored.families);
       setActiveFamilyId(stored.activeFamilyId);
 
@@ -129,25 +143,16 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Reprogramar recordatorios locales cuando cambien tratamientos o miembros
+  // Reprogramar recordatorios locales cuando cambien tratamientos, miembros o preferencias
   useEffect(() => {
     if (!isReady) return;
-    const memberMap = new Map(members.map((m) => [m.id, m.display_name]));
-    for (const tr of treatments) {
-      if (tr.status !== 'active' || !tr.next_due_at) {
-        void cancelPrescriptionReminder(tr.id);
-        continue;
-      }
-      void schedulePrescriptionReminder({
-        prescriptionId: tr.id,
-        patientName: memberMap.get(tr.member_id) ?? 'Miembro',
-        medicationName: tr.brand_name,
-        doseText: tr.dose_text,
-        triggerAtIso: tr.next_due_at,
-        isPrn: tr.frequency_type === 'prn',
-      });
-    }
-  }, [isReady, members, treatments]);
+    void syncPrescriptionReminders({
+      treatments,
+      members,
+      enabled: notificationsEnabled,
+      mutedMemberIds,
+    });
+  }, [isReady, members, treatments, notificationsEnabled, mutedMemberIds]);
 
   // Guardar caché de lectura ante cambios de la familia activa
   useEffect(() => {
@@ -289,6 +294,31 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
     await leaveFamily(session.family_id);
   }, [leaveFamily, session]);
 
+  const setNotificationsEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (enabled) {
+        await initializeNotifications();
+      }
+      setNotificationsEnabledState(enabled);
+      await saveNotificationPrefs({ enabled, mutedMemberIds });
+    },
+    [mutedMemberIds]
+  );
+
+  const toggleMemberNotifications = useCallback(
+    async (memberId: string, enabled: boolean) => {
+      const nextMuted = enabled
+        ? mutedMemberIds.filter((id) => id !== memberId)
+        : Array.from(new Set([...mutedMemberIds, memberId]));
+      setMutedMemberIds(nextMuted);
+      await saveNotificationPrefs({
+        enabled: notificationsEnabled,
+        mutedMemberIds: nextMuted,
+      });
+    },
+    [mutedMemberIds, notificationsEnabled]
+  );
+
   const isCaregiver = session?.role === 'caregiver';
 
   const value = useMemo<KiddoMedContextValue>(
@@ -310,6 +340,10 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       switchFamily,
       leaveFamily,
       signOutFamily,
+      notificationsEnabled,
+      mutedMemberIds,
+      setNotificationsEnabled,
+      toggleMemberNotifications,
       syncError,
     }),
     [
@@ -329,6 +363,10 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       switchFamily,
       leaveFamily,
       signOutFamily,
+      notificationsEnabled,
+      mutedMemberIds,
+      setNotificationsEnabled,
+      toggleMemberNotifications,
       syncError,
     ]
   );

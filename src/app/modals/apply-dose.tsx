@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
@@ -14,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { Card } from '../../components/ui/Card';
+import { CrossPlatformDateTimePicker } from '../../components/ui/CrossPlatformDateTimePicker';
 import { ChipGroup, ChipOption } from '../../components/ui/ChipGroup';
 import { FormField } from '../../components/ui/FormField';
 import { PillButton } from '../../components/ui/PillButton';
@@ -153,7 +153,7 @@ export default function ApplyDoseModal() {
         </View>
 
         {pickerMode && (
-          <DateTimePicker
+          <CrossPlatformDateTimePicker
             value={administeredAt}
             mode={pickerMode}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}

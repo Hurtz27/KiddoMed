@@ -131,7 +131,20 @@ export function SlotDoseModal({
       setFutureConfirmDose(dose);
       return;
     }
-    void executeApply(dose);
+    const nowTime = formatTimeShort(new Date().toISOString());
+    Alert.alert(
+      'Confirmar dosis',
+      `¿Seguro que quieres aplicar ${dose.treatment.brand_name} (${dose.treatment.dose_text}) a ${group!.member.display_name} a las ${nowTime}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sí, aplicar',
+          onPress: () => {
+            void executeApply(dose);
+          },
+        },
+      ]
+    );
   }
 
   function handleRevertPress(dose: ProjectedDose) {
@@ -175,8 +188,9 @@ export function SlotDoseModal({
 
   return (
     <Modal visible={Boolean(group)} animationType="slide" transparent onRequestClose={handleClose}>
-      <Pressable style={styles.backdrop} onPress={handleClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+        <View style={styles.sheet}>
           <View style={styles.handle} />
 
           <View style={styles.headerRow}>
@@ -281,7 +295,11 @@ export function SlotDoseModal({
               </View>
             </View>
           ) : (
-            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={styles.list}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
               {group.doses.map((dose) => {
                 const isLocallyApplied = appliedDoseIds.has(dose.id);
                 const isApplied = dose.status === 'applied' || isLocallyApplied;
@@ -391,8 +409,8 @@ export function SlotDoseModal({
               })}
             </ScrollView>
           )}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

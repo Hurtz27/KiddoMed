@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
@@ -40,30 +41,38 @@ export default function HistoryAndSearchScreen() {
 
   const [queryText, setQueryText] = useState('');
   const [filterKind, setFilterKind] = useState<FilterKind>('all');
+  const [memberId, setMemberId] = useState<string | null>(selectedMemberId);
   const [exporting, setExporting] = useState(false);
 
-  const activeMember = members.find((m) => m.id === selectedMemberId) ?? members[0] ?? null;
+  const activeMember =
+    members.find((m) => m.id === memberId) ??
+    members.find((m) => m.id === selectedMemberId) ??
+    members[0] ??
+    null;
+  const activeMemberId = activeMember?.id ?? null;
   const memberMap = useMemo(() => new Map(members.map((m) => [m.id, m.display_name])), [members]);
   const treatmentMap = useMemo(() => new Map(treatments.map((t) => [t.id, t])), [treatments]);
 
   const filteredTreatments = useMemo(() => {
     const q = queryText.trim().toLowerCase();
-    if (!q) return [];
+    if (!q || !activeMemberId) return [];
     return treatments.filter(
       (t) =>
-        t.brand_name.toLowerCase().includes(q) ||
-        (t.active_ingredients?.toLowerCase().includes(q) ?? false)
+        t.member_id === activeMemberId &&
+        (t.brand_name.toLowerCase().includes(q) ||
+          (t.active_ingredients?.toLowerCase().includes(q) ?? false))
     );
-  }, [queryText, treatments]);
+  }, [queryText, treatments, activeMemberId]);
 
   const groupedTimeline = useMemo(() => {
     const q = queryText.trim().toLowerCase();
 
     const dItems =
-      filterKind === 'symptom'
+      filterKind === 'symptom' || !activeMemberId
         ? []
         : doseLogs
             .filter((d) => {
+              if (d.member_id !== activeMemberId) return false;
               if (!q) return true;
               const tr = treatmentMap.get(d.treatment_item_id);
               return (
@@ -78,7 +87,7 @@ export default function HistoryAndSearchScreen() {
                 id: `d-${d.id}`,
                 timestamp: d.administered_at,
                 title: `${tr?.brand_name ?? 'Tratamiento'} · ${d.dose_text}`,
-                subtitle: `${memberMap.get(d.member_id) ?? 'Miembro'} · por ${d.administered_by_member_name}${
+                subtitle: `por ${d.administered_by_member_name}${
                   d.was_early_override ? ' · ⚠ Anticipada' : ''
                 }`,
                 iconColor: colors.successText,
@@ -86,19 +95,21 @@ export default function HistoryAndSearchScreen() {
             });
 
     const sItems =
-      filterKind === 'dose' || q
+      filterKind === 'dose' || q || !activeMemberId
         ? []
-        : symptomLogs.map((s) => ({
-            kind: 'symptom' as const,
-            id: `s-${s.id}`,
-            timestamp: s.recorded_at,
-            title:
-              s.temperature_celsius !== null
-                ? `Temperatura ${s.temperature_celsius.toFixed(1)} °C`
-                : `Síntomas: ${s.symptoms.join(', ')}`,
-            subtitle: `${memberMap.get(s.member_id) ?? 'Miembro'} · por ${s.recorded_by_name}`,
-            iconColor: getTemperatureColor(s.temperature_celsius),
-          }));
+        : symptomLogs
+            .filter((s) => s.member_id === activeMemberId)
+            .map((s) => ({
+              kind: 'symptom' as const,
+              id: `s-${s.id}`,
+              timestamp: s.recorded_at,
+              title:
+                s.temperature_celsius !== null
+                  ? `Temperatura ${s.temperature_celsius.toFixed(1)} °C`
+                  : `Síntomas: ${s.symptoms.join(', ')}`,
+              subtitle: `por ${s.recorded_by_name}`,
+              iconColor: getTemperatureColor(s.temperature_celsius),
+            }));
 
     const combined = [...dItems, ...sItems].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
@@ -124,7 +135,7 @@ export default function HistoryAndSearchScreen() {
       groups.get(key)!.items.push(item);
     }
     return Array.from(groups.entries());
-  }, [queryText, filterKind, doseLogs, symptomLogs, memberMap, treatmentMap]);
+  }, [queryText, filterKind, activeMemberId, doseLogs, symptomLogs, treatmentMap]);
 
   async function handleExport() {
     if (!activeMember) return;
@@ -172,6 +183,49 @@ export default function HistoryAndSearchScreen() {
             </Pressable>
           )}
         </View>
+
+        {/* Selector de integrante */}
+        {members.length > 1 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.memberBleed}
+            contentContainerStyle={styles.memberContent}
+          >
+            {members.map((m) => {
+              const active = activeMemberId === m.id;
+              const accent = m.accent_color || colors.primary;
+              return (
+                <Pressable
+                  key={m.id}
+                  style={[
+                    styles.memberChip,
+                    active && { backgroundColor: accent, borderColor: accent },
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setMemberId(m.id);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.memberDot,
+                      { backgroundColor: active ? colors.textInverse : accent },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.memberChipText,
+                      active && styles.memberChipTextActive,
+                    ]}
+                  >
+                    {m.display_name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
 
         <ChipGroup
           options={FILTER_OPTIONS}
@@ -269,6 +323,38 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     marginBottom: spacing.md,
+  },
+  memberBleed: {
+    marginHorizontal: -spacing.lg,
+    marginBottom: spacing.md,
+  },
+  memberContent: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  memberChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  memberDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+  },
+  memberChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  memberChipTextActive: {
+    color: colors.textInverse,
   },
   matchBox: {
     backgroundColor: colors.primarySoft,

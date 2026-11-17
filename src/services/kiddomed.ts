@@ -27,6 +27,7 @@ import {
   SymptomLog,
   TreatmentItem,
   TreatmentItemType,
+  TreatmentStatus,
 } from '../types/database';
 import { calculateEndDateIso } from '../utils/formatting';
 import { saveFamilySession } from './cache';
@@ -403,9 +404,29 @@ export async function updateTreatmentItemRecord(params: {
   frequencyLabel: string;
   minSafetyHours: number;
   notes: string | null;
+  status?: TreatmentStatus;
 }): Promise<void> {
   await ensureAnonymousAuth();
   const endDate = calculateEndDateIso(params.startDateIso, params.durationDays);
+  const statusUpdate: Partial<TreatmentItem> =
+    params.status === 'suspended'
+      ? {
+          status: 'suspended',
+          suspension_reason: 'Suspendido por indicación / cambio de tratamiento',
+          next_due_at: null,
+        }
+      : params.status === 'completed'
+      ? {
+          status: 'completed',
+          next_due_at: null,
+        }
+      : params.status === 'active'
+      ? {
+          status: 'active',
+          suspension_reason: null,
+        }
+      : {};
+
   await updateDoc(doc(db, `families/${params.familyId}/treatments/${params.treatmentId}`), {
     item_type: params.itemType,
     brand_name: params.brandName.trim(),
@@ -419,6 +440,7 @@ export async function updateTreatmentItemRecord(params: {
     frequency_label: params.frequencyLabel.trim(),
     min_safety_hours: params.minSafetyHours,
     notes: params.notes?.trim() || null,
+    ...statusUpdate,
   });
 }
 
