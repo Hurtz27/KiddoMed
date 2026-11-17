@@ -68,7 +68,7 @@ export async function createFamilyAccount(params: {
     birth_date: null,
     weight_kg: null,
     allergies: [],
-    accent_color: '#0284C7',
+    accent_color: '#0F6B64',
     has_app_access: true,
     access_role: 'caregiver',
     invite_code: null,

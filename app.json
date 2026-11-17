@@ -19,7 +19,7 @@
       [
         "expo-notifications",
         {
-          "color": "#0284C7"
+          "color": "#0F6B64"
         }
       ],
       "expo-sharing",

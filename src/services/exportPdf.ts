@@ -71,7 +71,7 @@ export async function exportMemberPdf(params: {
       <meta charset="utf-8" />
       <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; padding: 24px; }
-        h1 { color: #0284c7; margin-bottom: 4px; font-size: 22px; }
+        h1 { color: #0F6B64; margin-bottom: 4px; font-size: 22px; }
         .meta { color: #475569; font-size: 13px; margin-bottom: 18px; }
         .allergies { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 8px 12px; border-radius: 6px; margin-bottom: 18px; font-size: 13px; }
         h2 { font-size: 15px; color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 22px; }

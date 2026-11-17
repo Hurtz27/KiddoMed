@@ -17,6 +17,7 @@ import {
   createTreatmentItemRecord,
   updateTreatmentItemRecord,
 } from '../../services/kiddomed';
+import { colors } from '../../theme/tokens';
 import { FrequencyType, TreatmentItemType } from '../../types/database';
 import { calculateEndDateIso, formatDateOnly } from '../../utils/formatting';
 
@@ -348,7 +349,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#CBD5E1',
   },
-  typeBtnActive: { backgroundColor: '#0284C7', borderColor: '#0284C7' },
+  typeBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   typeText: { fontSize: 13, fontWeight: '600', color: '#334155' },
   typeTextActive: { color: '#FFFFFF' },
   dateBtn: {
@@ -361,15 +362,15 @@ const styles = StyleSheet.create({
   dateText: { fontSize: 14, color: '#0F172A' },
   endDateBadge: {
     marginTop: 8,
-    backgroundColor: '#E0F2FE',
-    color: '#0369A1',
+    backgroundColor: colors.primarySoft,
+    color: colors.primary,
     padding: 8,
     borderRadius: 8,
     fontSize: 12,
     fontWeight: '700',
   },
   saveBtn: {
-    backgroundColor: '#0284C7',
+    backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 15,
     alignItems: 'center',

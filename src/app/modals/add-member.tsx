@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useKiddoMed } from '../../context/KiddoMedContext';
 import { createFamilyMember, updateFamilyMember } from '../../services/kiddomed';
-import { getFirstAvailableMemberColor, MEMBER_COLOR_PALETTE } from '../../theme/tokens';
+import { colors, getFirstAvailableMemberColor, MEMBER_COLOR_PALETTE } from '../../theme/tokens';
 import { RelationshipType } from '../../types/database';
 
 const RELATIONSHIPS: { label: string; value: RelationshipType }[] = [
@@ -274,11 +274,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#CBD5E1',
   },
-  chipActive: { backgroundColor: '#0284C7', borderColor: '#0284C7' },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { fontSize: 13, fontWeight: '600', color: '#334155' },
   chipTextActive: { color: '#FFFFFF' },
   switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  toggleLink: { fontSize: 12, fontWeight: '700', color: '#0284C7', marginTop: 12 },
+  toggleLink: { fontSize: 12, fontWeight: '700', color: colors.primary, marginTop: 12 },
   dateBtn: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
   colorDotSelected: { borderWidth: 3, borderColor: '#0F172A' },
   colorDotTaken: { opacity: 0.32 },
   saveBtn: {
-    backgroundColor: '#0284C7',
+    backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 15,
     alignItems: 'center',

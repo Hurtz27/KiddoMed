@@ -5,7 +5,7 @@ export const colors = {
   background: '#F2F2F7',
   surface: '#FFFFFF',
   surfaceMuted: '#EFEFF4',
-  surfaceTinted: '#EBF5FF',
+  surfaceTinted: '#DAF4EB',
 
   // Typography
   textPrimary: '#1C1C1E',
@@ -17,9 +17,9 @@ export const colors = {
   border: '#E5E5EA',
   borderSubtle: '#F2F2F7',
 
-  // Brand & Semantic (Apple System Colors)
-  primary: '#007AFF',
-  primarySoft: '#EBF5FF',
+  // Brand & Semantic (KiddoMed Logo Palette)
+  primary: '#0F6B64',
+  primarySoft: '#DAF4EB',
 
   success: '#34C759',
   successText: '#15803D',
@@ -129,8 +129,9 @@ export const shadows: Record<'card' | 'pill', ViewStyle> = {
 };
 
 export const MEMBER_COLOR_PALETTE = [
-  '#0284C7', // Azul cielo
+  '#0F6B64', // Verde KiddoMed (principal)
   '#0D9488', // Verde azulado
+  '#0284C7', // Azul cielo
   '#7C3AED', // Morado
   '#DB2777', // Rosa
   '#EA580C', // Naranja
