@@ -1,5 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 import {
   DoseLog,
   FamilyMember,
@@ -113,6 +114,11 @@ export async function exportMemberPdf(params: {
     </html>
   `;
 
+  if (Platform.OS === 'web') {
+    await Print.printAsync({ html });
+    return;
+  }
+
   const { uri } = await Print.printToFileAsync({ html });
   const canShare = await Sharing.isAvailableAsync();
   if (canShare) {
@@ -121,6 +127,8 @@ export async function exportMemberPdf(params: {
       dialogTitle: `Resumen Médico - ${member.display_name}`,
       UTI: 'com.adobe.pdf',
     });
+  } else {
+    await Print.printAsync({ html });
   }
 }
 

@@ -1,6 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +14,8 @@ import {
   View,
 } from 'react-native';
 import { useKiddoMed } from '../../context/KiddoMedContext';
-import { createFamilyMember } from '../../services/kiddomed';
+import { createFamilyMember, updateFamilyMember } from '../../services/kiddomed';
+import { getFirstAvailableMemberColor, MEMBER_COLOR_PALETTE } from '../../theme/tokens';
 import { RelationshipType } from '../../types/database';
 
 const RELATIONSHIPS: { label: string; value: RelationshipType }[] = [
@@ -26,21 +28,53 @@ const RELATIONSHIPS: { label: string; value: RelationshipType }[] = [
   { label: 'Otro', value: 'otro' },
 ];
 
-const COLORS = ['#0284C7', '#0D9488', '#7C3AED', '#DB2777', '#EA580C'];
-
-export default function AddMemberModal() {
+export default function AddOrEditMemberModal() {
+  const { memberId } = useLocalSearchParams<{ memberId?: string }>();
   const router = useRouter();
-  const { session, setSelectedMemberId } = useKiddoMed();
+  const navigation = useNavigation();
+  const { session, members, setSelectedMemberId } = useKiddoMed();
 
-  const [displayName, setDisplayName] = useState('');
-  const [relationship, setRelationship] = useState<RelationshipType>('hijo');
-  const [hasBirthDate, setHasBirthDate] = useState(true);
-  const [birthDate, setBirthDate] = useState(new Date(2023, 0, 1));
+  const existing = memberId ? members.find((m) => m.id === memberId) : undefined;
+  const isEditing = Boolean(existing);
+
+  const usedColorOwners = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) {
+      if (m.id === existing?.id || !m.accent_color) continue;
+      map.set(m.accent_color.toUpperCase(), m.display_name);
+    }
+    return map;
+  }, [members, existing?.id]);
+
+  const [displayName, setDisplayName] = useState(existing?.display_name ?? '');
+  const [relationship, setRelationship] = useState<RelationshipType>(
+    existing?.relationship ?? 'hijo'
+  );
+  const [hasBirthDate, setHasBirthDate] = useState(
+    existing ? Boolean(existing.birth_date) : true
+  );
+  const [birthDate, setBirthDate] = useState(
+    existing?.birth_date ? new Date(existing.birth_date) : new Date(2023, 0, 1)
+  );
   const [showPicker, setShowPicker] = useState(false);
-  const [weight, setWeight] = useState('');
-  const [allergiesText, setAllergiesText] = useState('');
-  const [color, setColor] = useState(COLORS[0]);
+  const [weight, setWeight] = useState(
+    existing?.weight_kg !== null && existing?.weight_kg !== undefined
+      ? String(existing.weight_kg)
+      : ''
+  );
+  const [allergiesText, setAllergiesText] = useState(
+    existing?.allergies.join(', ') ?? ''
+  );
+  const [color, setColor] = useState(
+    existing?.accent_color ?? getFirstAvailableMemberColor(usedColorOwners.keys())
+  );
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    navigation.setOptions({
+      title: isEditing ? 'Editar Miembro' : 'Agregar Miembro Familiar',
+    });
+  }, [isEditing, navigation]);
 
   async function handleSave() {
     if (!session) return;
@@ -55,6 +89,15 @@ export default function AddMemberModal() {
       return;
     }
 
+    const colorOwner = usedColorOwners.get(color.toUpperCase());
+    if (colorOwner) {
+      Alert.alert(
+        'Color en uso',
+        `El color seleccionado ya lo usa ${colorOwner}. Elige otro color para que no se repitan.`
+      );
+      return;
+    }
+
     const allergies = allergiesText
       .split(',')
       .map((s) => s.trim())
@@ -62,19 +105,32 @@ export default function AddMemberModal() {
 
     setSaving(true);
     try {
-      const id = await createFamilyMember({
-        familyId: session.family_id,
-        displayName,
-        relationship,
-        birthDate: hasBirthDate ? birthDate.toISOString().split('T')[0] : null,
-        weightKg: parsedWeight,
-        allergies,
-        accentColor: color,
-      });
-      setSelectedMemberId(id);
+      if (isEditing && existing) {
+        await updateFamilyMember({
+          familyId: session.family_id,
+          memberId: existing.id,
+          displayName,
+          relationship,
+          birthDate: hasBirthDate ? birthDate.toISOString().split('T')[0] : null,
+          weightKg: parsedWeight,
+          allergies,
+          accentColor: color,
+        });
+      } else {
+        const id = await createFamilyMember({
+          familyId: session.family_id,
+          displayName,
+          relationship,
+          birthDate: hasBirthDate ? birthDate.toISOString().split('T')[0] : null,
+          weightKg: parsedWeight,
+          allergies,
+          accentColor: color,
+        });
+        setSelectedMemberId(id);
+      }
       router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo crear el miembro.');
+      Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo guardar el miembro.');
     } finally {
       setSaving(false);
     }
@@ -150,19 +206,34 @@ export default function AddMemberModal() {
         onChangeText={setAllergiesText}
       />
 
-      <Text style={styles.label}>Color identificador</Text>
+      <Text style={styles.label}>Color identificador (único por integrante)</Text>
       <View style={styles.colorRow}>
-        {COLORS.map((c) => (
-          <Pressable
-            key={c}
-            style={[
-              styles.colorDot,
-              { backgroundColor: c },
-              color === c && styles.colorDotSelected,
-            ]}
-            onPress={() => setColor(c)}
-          />
-        ))}
+        {MEMBER_COLOR_PALETTE.map((c) => {
+          const owner = usedColorOwners.get(c.toUpperCase());
+          const isTaken = Boolean(owner);
+          const isSelected = color.toUpperCase() === c.toUpperCase();
+
+          return (
+            <Pressable
+              key={c}
+              disabled={isTaken}
+              style={[
+                styles.colorDot,
+                { backgroundColor: c },
+                isSelected && styles.colorDotSelected,
+                isTaken && styles.colorDotTaken,
+              ]}
+              onPress={() => setColor(c)}
+              accessibilityLabel={owner ? `Color en uso por ${owner}` : `Seleccionar color ${c}`}
+            >
+              {isTaken ? (
+                <Ionicons name="lock-closed" size={14} color="#FFFFFF" />
+              ) : isSelected ? (
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              ) : null}
+            </Pressable>
+          );
+        })}
       </View>
 
       <Pressable
@@ -173,7 +244,9 @@ export default function AddMemberModal() {
         {saving ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
-          <Text style={styles.saveText}>Guardar Miembro</Text>
+          <Text style={styles.saveText}>
+            {isEditing ? 'Actualizar Miembro' : 'Guardar Miembro'}
+          </Text>
         )}
       </Pressable>
     </ScrollView>
@@ -214,9 +287,16 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   dateText: { fontSize: 15, color: '#0F172A' },
-  colorRow: { flexDirection: 'row', gap: 12, marginTop: 6 },
-  colorDot: { width: 34, height: 34, borderRadius: 17 },
+  colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
+  colorDot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   colorDotSelected: { borderWidth: 3, borderColor: '#0F172A' },
+  colorDotTaken: { opacity: 0.32 },
   saveBtn: {
     backgroundColor: '#0284C7',
     borderRadius: 12,

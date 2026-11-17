@@ -127,3 +127,25 @@ export const shadows: Record<'card' | 'pill', ViewStyle> = {
     default: {},
   }) as ViewStyle,
 };
+
+export const MEMBER_COLOR_PALETTE = [
+  '#0284C7', // Azul cielo
+  '#0D9488', // Verde azulado
+  '#7C3AED', // Morado
+  '#DB2777', // Rosa
+  '#EA580C', // Naranja
+  '#16A34A', // Verde
+  '#4F46E5', // Índigo
+  '#E11D48', // Rojo coral
+  '#D97706', // Ámbar
+  '#0891B2', // Cian
+  '#65A30D', // Lima oscuro
+  '#9333EA', // Ciruela
+] as const;
+
+export function getFirstAvailableMemberColor(usedColors: Iterable<string>): string {
+  const used = new Set(Array.from(usedColors, (c) => c.toUpperCase()));
+  return (
+    MEMBER_COLOR_PALETTE.find((c) => !used.has(c.toUpperCase())) ?? MEMBER_COLOR_PALETTE[0]
+  );
+}

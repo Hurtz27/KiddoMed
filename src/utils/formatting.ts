@@ -88,3 +88,22 @@ export function getTemperatureColor(temp: number | null): string {
   if (temp >= 37.5) return '#D97706';
   return '#16A34A';
 }
+
+export function getTreatmentProgress(
+  startIso: string,
+  durationDays: number | null
+): { currentDay: number; totalDays: number; percent: number } | null {
+  if (!durationDays || durationDays <= 0) return null;
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const startMidnight = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const elapsedDays = Math.floor((todayMidnight - startMidnight) / 86400000) + 1;
+
+  const currentDay = Math.min(durationDays, Math.max(1, elapsedDays));
+  const percent = Math.min(100, Math.round((currentDay / durationDays) * 100));
+
+  return { currentDay, totalDays: durationDays, percent };
+}

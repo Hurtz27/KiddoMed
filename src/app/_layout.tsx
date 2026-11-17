@@ -4,6 +4,24 @@ import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KiddoMedProvider, useKiddoMed } from '../context/KiddoMedContext';
+import { colors } from '../theme/tokens';
+
+const STACK_HEADER_OPTIONS = {
+  headerShown: true,
+  headerShadowVisible: false,
+  headerStyle: { backgroundColor: colors.background },
+  headerTintColor: colors.primary,
+  headerTitleStyle: {
+    fontWeight: '700' as const,
+    fontSize: 17,
+    color: colors.textPrimary,
+  },
+};
+
+const MODAL_HEADER_OPTIONS = {
+  ...STACK_HEADER_OPTIONS,
+  presentation: 'modal' as const,
+};
 
 function NavigationGuard() {
   const { isReady, session } = useKiddoMed();
@@ -24,7 +42,7 @@ function NavigationGuard() {
   if (!isReady) {
     return (
       <View style={styles.splash}>
-        <ActivityIndicator size="large" color="#0284C7" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -34,24 +52,36 @@ function NavigationGuard() {
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen
+        name="member-illnesses"
+        options={{ ...STACK_HEADER_OPTIONS, title: 'Historial de Enfermedades' }}
+      />
+      <Stack.Screen
+        name="illness-detail"
+        options={{ ...STACK_HEADER_OPTIONS, title: 'Detalle de Enfermedad' }}
+      />
+      <Stack.Screen
         name="modals/apply-dose"
-        options={{ presentation: 'modal', headerShown: true, title: 'Marcar Administrada' }}
+        options={{ ...MODAL_HEADER_OPTIONS, title: 'Marcar Administrada' }}
       />
       <Stack.Screen
         name="modals/add-treatment"
-        options={{ presentation: 'modal', headerShown: true, title: 'Nuevo Elemento de Tratamiento' }}
+        options={{ ...MODAL_HEADER_OPTIONS, title: 'Nuevo Tratamiento' }}
       />
       <Stack.Screen
         name="modals/add-illness"
-        options={{ presentation: 'modal', headerShown: true, title: 'Registrar Enfermedad' }}
+        options={{ ...MODAL_HEADER_OPTIONS, title: 'Registrar Enfermedad' }}
       />
       <Stack.Screen
         name="modals/add-symptom"
-        options={{ presentation: 'modal', headerShown: true, title: 'Fiebre y Síntomas' }}
+        options={{ ...MODAL_HEADER_OPTIONS, title: 'Fiebre y Síntomas' }}
       />
       <Stack.Screen
         name="modals/add-member"
-        options={{ presentation: 'modal', headerShown: true, title: 'Agregar Miembro Familiar' }}
+        options={{ ...MODAL_HEADER_OPTIONS, title: 'Agregar Miembro' }}
+      />
+      <Stack.Screen
+        name="modals/add-family"
+        options={{ ...MODAL_HEADER_OPTIONS, title: 'Agregar Familia' }}
       />
     </Stack>
   );
@@ -73,6 +103,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.background,
   },
 });

@@ -7,15 +7,9 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
+        headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textTertiary,
-        headerShadowVisible: false,
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: {
-          fontWeight: '700',
-          fontSize: 17,
-          color: colors.textPrimary,
-        },
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
@@ -30,11 +24,23 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Hoy',
-          headerTitle: 'HL KiddoMed',
+          title: 'Dosis',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
-              name={focused ? 'time' : 'time-outline'}
+              name={focused ? 'medkit' : 'medkit-outline'}
+              size={size}
+              color={typeof color === 'string' ? color : colors.primary}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="notes"
+        options={{
+          title: 'Notas',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'journal' : 'journal-outline'}
               size={size}
               color={typeof color === 'string' ? color : colors.primary}
             />
@@ -45,7 +51,6 @@ export default function TabsLayout() {
         name="patients"
         options={{
           title: 'Miembros',
-          headerTitle: 'Miembros y Enfermedades',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? 'people' : 'people-outline'}
@@ -59,10 +64,9 @@ export default function TabsLayout() {
         name="history"
         options={{
           title: 'Historial',
-          headerTitle: 'Historial y Búsqueda',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
-              name={focused ? 'search' : 'search-outline'}
+              name={focused ? 'document-text' : 'document-text-outline'}
               size={size}
               color={typeof color === 'string' ? color : colors.primary}
             />

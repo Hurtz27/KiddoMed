@@ -1,10 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React from 'react';
-import { Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
 import { colors, radius, spacing } from '../../theme/tokens';
 
-export type PillButtonVariant = 'primary' | 'danger' | 'tinted' | 'warningTinted';
+export type PillButtonVariant =
+  | 'primary'
+  | 'danger'
+  | 'tinted'
+  | 'warningTinted'
+  | 'secondary'
+  | 'dangerTinted';
 
 interface PillButtonProps {
   label: string;
@@ -13,6 +19,8 @@ interface PillButtonProps {
   icon?: keyof typeof Ionicons.glyphMap;
   style?: StyleProp<ViewStyle>;
   haptic?: boolean;
+  disabled?: boolean;
+  loading?: boolean;
 }
 
 const VARIANT_STYLES: Record<
@@ -39,10 +47,20 @@ const VARIANT_STYLES: Record<
     text: colors.warningText,
     iconColor: colors.warning,
   },
+  secondary: {
+    bg: colors.surfaceMuted,
+    text: colors.textPrimary,
+    iconColor: colors.textPrimary,
+  },
+  dangerTinted: {
+    bg: colors.dangerSoft,
+    text: colors.dangerText,
+    iconColor: colors.danger,
+  },
 };
 
 /**
- * Capsule-shaped CTA button following Apple HIG minimum touch target (48px) and haptic feedback.
+ * Capsule-shaped CTA button following Apple HIG minimum touch target (48px), haptic feedback, and loading state.
  */
 export function PillButton({
   label,
@@ -51,10 +69,14 @@ export function PillButton({
   icon,
   style,
   haptic = true,
+  disabled = false,
+  loading = false,
 }: PillButtonProps) {
   const palette = VARIANT_STYLES[variant];
+  const isDisabled = disabled || loading;
 
   const handlePress = () => {
+    if (isDisabled) return;
     if (haptic) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
@@ -64,15 +86,23 @@ export function PillButton({
   return (
     <Pressable
       onPress={handlePress}
+      disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
         { backgroundColor: palette.bg },
-        pressed && styles.pressed,
+        isDisabled && styles.disabled,
+        pressed && !isDisabled && styles.pressed,
         style,
       ]}
     >
-      {icon && <Ionicons name={icon} size={18} color={palette.iconColor} />}
-      <Text style={[styles.label, { color: palette.text }]}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={palette.text} />
+      ) : (
+        <>
+          {icon && <Ionicons name={icon} size={18} color={palette.iconColor} />}
+          <Text style={[styles.label, { color: palette.text }]}>{label}</Text>
+        </>
+      )}
     </Pressable>
   );
 }
@@ -87,6 +117,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
+  },
+  disabled: {
+    opacity: 0.55,
   },
   pressed: {
     opacity: 0.82,

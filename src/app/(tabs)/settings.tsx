@@ -1,85 +1,358 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import React from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Card } from '../../components/ui/Card';
+import { GroupedListRow } from '../../components/ui/GroupedListRow';
+import { PillButton } from '../../components/ui/PillButton';
 import { useKiddoMed } from '../../context/KiddoMedContext';
+import { colors, radius, spacing, typography } from '../../theme/tokens';
+import { FamilySession } from '../../types/database';
 
 export default function SettingsScreen() {
-  const { session, isCaregiver, isOffline, signOutFamily } = useKiddoMed();
+  const router = useRouter();
+  const {
+    families,
+    session,
+    isCaregiver,
+    isOffline,
+    members,
+    switchFamily,
+    leaveFamily,
+  } = useKiddoMed();
 
-  function handleLogout() {
+  function handleSelectFamily(familyId: string) {
+    if (familyId === session?.family_id) return;
+    Haptics.selectionAsync().catch(() => {});
+    void switchFamily(familyId);
+  }
+
+  async function handleViewMembers(familyId: string) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (familyId !== session?.family_id) {
+      await switchFamily(familyId);
+    }
+    router.push('/(tabs)/patients');
+  }
+
+  function handleLeaveFamily(target: FamilySession) {
+    const isLast = families.length <= 1;
     Alert.alert(
-      'Salir de esta familia',
-      '¿Seguro que deseas desvincular este teléfono?',
+      `Salir de ${target.family_name}`,
+      isLast
+        ? 'Es tu única familia vinculada. Si sales, volverás a la pantalla de inicio.'
+        : '¿Seguro que deseas desvincular esta familia de este teléfono?',
       [
         { text: 'Cancelar', style: 'cancel' },
-        { text: 'Salir', style: 'destructive', onPress: signOutFamily },
+        {
+          text: 'Salir',
+          style: 'destructive',
+          onPress: () => {
+            void leaveFamily(target.family_id);
+          },
+        },
       ]
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.card}>
-        <Text style={styles.label}>Familia activa</Text>
-        <Text style={styles.value}>{session?.family_name ?? '-'}</Text>
-
-        <Text style={styles.label}>Tu perfil en este teléfono</Text>
-        <Text style={styles.value}>{session?.display_name ?? '-'}</Text>
-
-        <Text style={styles.label}>Nivel de permisos</Text>
-        <Text style={[styles.roleValue, !isCaregiver && { color: '#0284C7' }]}>
-          {isCaregiver ? 'Cuidador (Administrador completo)' : 'Paciente (Solo visualización)'}
-        </Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Estado de sincronización (Firebase Firestore)</Text>
-        <View style={styles.statusRow}>
-          <Ionicons
-            name={isOffline ? 'cloud-offline' : 'cloud-done'}
-            size={20}
-            color={isOffline ? '#DC2626' : '#16A34A'}
-          />
-          <Text style={styles.statusText}>
-            {isOffline ? 'Sin conexión' : 'Conectado en tiempo real'}
-          </Text>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.headerRow}>
+          <Text style={typography.largeTitle}>Familia</Text>
+          <Pressable
+            style={styles.addBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              router.push('/modals/add-family');
+            }}
+          >
+            <Ionicons name="add" size={18} color={colors.textInverse} />
+            <Text style={styles.addBtnText}>Familia</Text>
+          </Pressable>
         </View>
-      </View>
 
-      <Pressable style={styles.logoutBtn} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={18} color="#DC2626" />
-        <Text style={styles.logoutText}>Cambiar de familia o cuenta</Text>
-      </Pressable>
-    </ScrollView>
+        <Text style={styles.sectionLabel}>Mis Familias ({families.length})</Text>
+
+        {families.map((family) => {
+          const isActive = family.family_id === session?.family_id;
+          const roleLabel =
+            family.role === 'caregiver' ? 'Cuidador (Admin)' : 'Paciente (Lectura)';
+
+          return (
+            <Card
+              key={family.family_id}
+              style={[styles.familyCard, isActive && styles.familyCardActive]}
+            >
+              <Pressable
+                style={styles.familyTopRow}
+                onPress={() => handleSelectFamily(family.family_id)}
+              >
+                <View
+                  style={[
+                    styles.familyIconBadge,
+                    isActive && styles.familyIconBadgeActive,
+                  ]}
+                >
+                  <Ionicons
+                    name={isActive ? 'home' : 'home-outline'}
+                    size={20}
+                    color={isActive ? colors.textInverse : colors.primary}
+                  />
+                </View>
+
+                <View style={styles.familyInfo}>
+                  <View style={styles.familyNameRow}>
+                    <Text style={styles.familyName} numberOfLines={1}>
+                      {family.family_name}
+                    </Text>
+                    {isActive && (
+                      <View style={styles.activeBadge}>
+                        <Text style={styles.activeBadgeText}>Activa</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.familyMeta} numberOfLines={1}>
+                    {family.display_name} · {roleLabel}
+                  </Text>
+                  {isActive && (
+                    <Text style={styles.familyMembersCount}>
+                      {members.length}{' '}
+                      {members.length === 1 ? 'miembro' : 'miembros'} en esta familia
+                    </Text>
+                  )}
+                </View>
+              </Pressable>
+
+              <View style={styles.familyActionsRow}>
+                {!isActive && (
+                  <Pressable
+                    style={styles.actionPill}
+                    onPress={() => handleSelectFamily(family.family_id)}
+                  >
+                    <Ionicons name="swap-horizontal" size={15} color={colors.primary} />
+                    <Text style={styles.actionPillText}>Cambiar a esta</Text>
+                  </Pressable>
+                )}
+
+                <Pressable
+                  style={styles.actionPill}
+                  onPress={() => void handleViewMembers(family.family_id)}
+                >
+                  <Ionicons name="people-outline" size={15} color={colors.primary} />
+                  <Text style={styles.actionPillText}>Ver miembros</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.actionPill, styles.leavePill]}
+                  onPress={() => handleLeaveFamily(family)}
+                >
+                  <Ionicons name="log-out-outline" size={15} color={colors.danger} />
+                  <Text style={[styles.actionPillText, styles.leavePillText]}>Salir</Text>
+                </Pressable>
+              </View>
+            </Card>
+          );
+        })}
+
+        <Text style={styles.sectionLabel}>Cuenta y Perfil Activo</Text>
+        <Card style={styles.groupedCard}>
+          <GroupedListRow
+            title="Familia activa"
+            rightText={session?.family_name ?? '-'}
+            icon="home"
+            iconBg={colors.primary}
+            iconColor={colors.textInverse}
+          />
+          <GroupedListRow
+            title="Tu perfil"
+            rightText={session?.display_name ?? '-'}
+            icon="person"
+            iconBg="#AF52DE"
+            iconColor={colors.textInverse}
+          />
+          <GroupedListRow
+            title="Nivel de permisos"
+            rightText={isCaregiver ? 'Cuidador (Admin)' : 'Paciente (Lectura)'}
+            rightTextColor={isCaregiver ? colors.successText : colors.primary}
+            icon="shield-checkmark"
+            iconBg={colors.success}
+            iconColor={colors.textInverse}
+            showDivider={false}
+          />
+        </Card>
+
+        <Text style={styles.sectionLabel}>Sincronización</Text>
+        <Card style={styles.groupedCard}>
+          <GroupedListRow
+            title="Firebase Firestore"
+            subtitle={isOffline ? 'Trabajando con caché local' : 'Sincronizado en tiempo real'}
+            rightText={isOffline ? 'Sin conexión' : 'En línea'}
+            rightTextColor={isOffline ? colors.dangerText : colors.successText}
+            icon={isOffline ? 'cloud-offline' : 'cloud-done'}
+            iconBg={isOffline ? colors.danger : colors.success}
+            iconColor={colors.textInverse}
+            showDivider={false}
+          />
+        </Card>
+
+        <PillButton
+          label="Agregar otra familia"
+          icon="add-circle-outline"
+          variant="primary"
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            router.push('/modals/add-family');
+          }}
+          style={styles.addFamilyBtn}
+        />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  content: { padding: 16 },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+  safe: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
-  label: { fontSize: 12, fontWeight: '600', color: '#64748B', marginTop: 10 },
-  value: { fontSize: 17, fontWeight: '700', color: '#0F172A', marginTop: 2 },
-  roleValue: { fontSize: 15, fontWeight: '700', color: '#15803D', marginTop: 2 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  statusText: { fontSize: 14, fontWeight: '600', color: '#0F172A' },
-  logoutBtn: {
+  container: {
+    flex: 1,
+  },
+  content: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FECACA',
+    gap: 4,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
   },
-  logoutText: { color: '#DC2626', fontWeight: '700', fontSize: 14 },
+  addBtnText: {
+    color: colors.textInverse,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  sectionLabel: {
+    ...typography.footnote,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    color: colors.textTertiary,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.xs,
+  },
+  familyCard: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.xl,
+  },
+  familyCardActive: {
+    borderColor: colors.primary,
+    borderWidth: 1.5,
+  },
+  familyTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  familyIconBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.md,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  familyIconBadgeActive: {
+    backgroundColor: colors.primary,
+  },
+  familyInfo: {
+    flex: 1,
+  },
+  familyNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  familyName: {
+    ...typography.headline,
+    flexShrink: 1,
+  },
+  activeBadge: {
+    backgroundColor: colors.successSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+  },
+  activeBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.successText,
+  },
+  familyMeta: {
+    ...typography.footnote,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  familyMembersCount: {
+    ...typography.caption,
+    color: colors.primary,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  familyActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: 0.5,
+    borderTopColor: colors.border,
+  },
+  actionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radius.pill,
+  },
+  actionPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  leavePill: {
+    backgroundColor: colors.dangerSoft,
+    marginLeft: 'auto',
+  },
+  leavePillText: {
+    color: colors.danger,
+  },
+  groupedCard: {
+    paddingVertical: spacing.xs,
+    borderRadius: radius.xl,
+    marginBottom: spacing.xl,
+  },
+  addFamilyBtn: {
+    marginTop: spacing.xs,
+  },
 });

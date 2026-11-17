@@ -4,6 +4,10 @@
     "slug": "hl-kiddomed",
     "scheme": "kiddomed",
     "version": "1.0.0",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -31,15 +35,22 @@
     "android": {
       "package": "com.hurtado.kiddomed",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#DAF4EB",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a8d2ba2d-dd9f-4070-839f-4e5e0a8a52bb"
+      }
+    },
+    "owner": "hurtz27",
+    "updates": {
+      "url": "https://u.expo.dev/a8d2ba2d-dd9f-4070-839f-4e5e0a8a52bb"
     }
   }
 }

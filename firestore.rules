@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function roleDocPath(familyId) {
+      return /databases/$(database)/documents/families/$(familyId)/uid_roles/$(request.auth.uid);
+    }
+
+    function isFamilyMember(familyId) {
+      return isSignedIn() && (
+        exists(roleDocPath(familyId)) ||
+        existsAfter(roleDocPath(familyId))
+      );
+    }
+
+    function isCaregiver(familyId) {
+      return isSignedIn() && (
+        (exists(roleDocPath(familyId)) && get(roleDocPath(familyId)).data.role == 'caregiver') ||
+        (existsAfter(roleDocPath(familyId)) && getAfter(roleDocPath(familyId)).data.role == 'caregiver')
+      );
+    }
+
+    match /invites/{code} {
+      allow read: if isSignedIn();
+      allow create, update: if isCaregiver(request.resource.data.family_id);
+      allow delete: if isCaregiver(resource.data.family_id);
+    }
+
+    match /families/{familyId} {
+      allow create: if isSignedIn();
+      allow read: if isFamilyMember(familyId);
+      allow update, delete: if isCaregiver(familyId);
+
+      match /uid_roles/{uid} {
+        allow read: if isSignedIn() && (request.auth.uid == uid || isCaregiver(familyId));
+        allow create, update: if isSignedIn() && request.auth.uid == uid;
+        allow delete: if isCaregiver(familyId);
+      }
+
+      match /members/{memberId} {
+        allow read: if isFamilyMember(familyId);
+        allow create: if isCaregiver(familyId);
+        allow update: if isCaregiver(familyId) || (
+          isSignedIn() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linked_uid']) &&
+          request.resource.data.linked_uid == request.auth.uid
+        );
+        allow delete: if isCaregiver(familyId);
+      }
+
+      match /illnesses/{illnessId} {
+        allow read: if isFamilyMember(familyId);
+        allow create, update, delete: if isCaregiver(familyId);
+      }
+
+      match /treatments/{treatmentId} {
+        allow read: if isFamilyMember(familyId);
+        allow create, update, delete: if isCaregiver(familyId);
+      }
+
+      match /dose_logs/{logId} {
+        allow read: if isFamilyMember(familyId);
+        allow create, update, delete: if isCaregiver(familyId);
+      }
+
+      match /symptom_logs/{logId} {
+        allow read: if isFamilyMember(familyId);
+        allow create, update, delete: if isCaregiver(familyId);
+      }
+    }
+  }
+}

@@ -1,11 +1,16 @@
 import { signInAnonymously } from 'firebase/auth';
 import {
   collection,
+  deleteDoc,
+  deleteField,
   doc,
   getDoc,
+  getDocs,
+  query,
   runTransaction,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../lib/firebase';
@@ -193,6 +198,64 @@ export async function createFamilyMember(params: {
   return ref.id;
 }
 
+export async function updateFamilyMember(params: {
+  familyId: string;
+  memberId: string;
+  displayName: string;
+  relationship: RelationshipType;
+  birthDate: string | null;
+  weightKg: number | null;
+  allergies: string[];
+  accentColor: string;
+}): Promise<void> {
+  await ensureAnonymousAuth();
+  await updateDoc(doc(db, `families/${params.familyId}/members/${params.memberId}`), {
+    display_name: params.displayName.trim(),
+    relationship: params.relationship,
+    birth_date: params.birthDate,
+    weight_kg: params.weightKg,
+    allergies: params.allergies,
+    accent_color: params.accentColor,
+  });
+}
+
+export async function deleteFamilyMember(params: {
+  familyId: string;
+  memberId: string;
+  inviteCode?: string | null;
+}): Promise<void> {
+  await ensureAnonymousAuth();
+  const base = `families/${params.familyId}`;
+
+  const [illnessesSnap, treatmentsSnap, doseLogsSnap, symptomLogsSnap] = await Promise.all([
+    getDocs(query(collection(db, `${base}/illnesses`), where('member_id', '==', params.memberId))),
+    getDocs(query(collection(db, `${base}/treatments`), where('member_id', '==', params.memberId))),
+    getDocs(query(collection(db, `${base}/dose_logs`), where('member_id', '==', params.memberId))),
+    getDocs(query(collection(db, `${base}/symptom_logs`), where('member_id', '==', params.memberId))),
+  ]);
+
+  const ops: ((batch: ReturnType<typeof writeBatch>) => void)[] = [
+    (b) => b.delete(doc(db, `${base}/members/${params.memberId}`)),
+    ...illnessesSnap.docs.map((d) => (b: ReturnType<typeof writeBatch>) => b.delete(d.ref)),
+    ...treatmentsSnap.docs.map((d) => (b: ReturnType<typeof writeBatch>) => b.delete(d.ref)),
+    ...doseLogsSnap.docs.map((d) => (b: ReturnType<typeof writeBatch>) => b.delete(d.ref)),
+    ...symptomLogsSnap.docs.map((d) => (b: ReturnType<typeof writeBatch>) => b.delete(d.ref)),
+  ];
+
+  if (params.inviteCode) {
+    ops.push((b) => b.delete(doc(db, `invites/${params.inviteCode}`)));
+  }
+
+  const CHUNK_SIZE = 450;
+  for (let i = 0; i < ops.length; i += CHUNK_SIZE) {
+    const batch = writeBatch(db);
+    for (const op of ops.slice(i, i + CHUNK_SIZE)) {
+      op(batch);
+    }
+    await batch.commit();
+  }
+}
+
 export async function createIllnessRecord(params: {
   familyId: string;
   memberId: string;
@@ -219,6 +282,23 @@ export async function createIllnessRecord(params: {
   return ref.id;
 }
 
+export async function updateIllnessRecord(params: {
+  familyId: string;
+  illnessId: string;
+  diagnosis: string;
+  doctorName: string;
+  diagnosedAt: string;
+  notes: string | null;
+}): Promise<void> {
+  await ensureAnonymousAuth();
+  await updateDoc(doc(db, `families/${params.familyId}/illnesses/${params.illnessId}`), {
+    diagnosis: params.diagnosis.trim(),
+    doctor_name: params.doctorName.trim(),
+    diagnosed_at: params.diagnosedAt,
+    notes: params.notes?.trim() || null,
+  });
+}
+
 export async function updateIllnessStatus(params: {
   familyId: string;
   illnessId: string;
@@ -228,6 +308,38 @@ export async function updateIllnessStatus(params: {
   await updateDoc(doc(db, `families/${params.familyId}/illnesses/${params.illnessId}`), {
     status: params.status,
   });
+}
+
+export async function deleteIllnessRecord(params: {
+  familyId: string;
+  illnessId: string;
+}): Promise<void> {
+  await ensureAnonymousAuth();
+  const base = `families/${params.familyId}`;
+
+  const [treatmentsSnap, doseLogsSnap, symptomLogsSnap] = await Promise.all([
+    getDocs(query(collection(db, `${base}/treatments`), where('illness_id', '==', params.illnessId))),
+    getDocs(query(collection(db, `${base}/dose_logs`), where('illness_id', '==', params.illnessId))),
+    getDocs(query(collection(db, `${base}/symptom_logs`), where('illness_id', '==', params.illnessId))),
+  ]);
+
+  const ops: ((batch: ReturnType<typeof writeBatch>) => void)[] = [
+    (b) => b.delete(doc(db, `${base}/illnesses/${params.illnessId}`)),
+    ...treatmentsSnap.docs.map((d) => (b: ReturnType<typeof writeBatch>) => b.delete(d.ref)),
+    ...doseLogsSnap.docs.map((d) => (b: ReturnType<typeof writeBatch>) => b.delete(d.ref)),
+    ...symptomLogsSnap.docs.map(
+      (d) => (b: ReturnType<typeof writeBatch>) => b.update(d.ref, { illness_id: null })
+    ),
+  ];
+
+  const CHUNK_SIZE = 450;
+  for (let i = 0; i < ops.length; i += CHUNK_SIZE) {
+    const batch = writeBatch(db);
+    for (const op of ops.slice(i, i + CHUNK_SIZE)) {
+      op(batch);
+    }
+    await batch.commit();
+  }
 }
 
 export async function createTreatmentItemRecord(params: {
@@ -275,6 +387,39 @@ export async function createTreatmentItemRecord(params: {
 
   await setDoc(ref, data);
   return ref.id;
+}
+
+export async function updateTreatmentItemRecord(params: {
+  familyId: string;
+  treatmentId: string;
+  itemType: TreatmentItemType;
+  brandName: string;
+  activeIngredients: string | null;
+  doseText: string;
+  startDateIso: string;
+  durationDays: number | null;
+  frequencyType: FrequencyType;
+  frequencyValue: number;
+  frequencyLabel: string;
+  minSafetyHours: number;
+  notes: string | null;
+}): Promise<void> {
+  await ensureAnonymousAuth();
+  const endDate = calculateEndDateIso(params.startDateIso, params.durationDays);
+  await updateDoc(doc(db, `families/${params.familyId}/treatments/${params.treatmentId}`), {
+    item_type: params.itemType,
+    brand_name: params.brandName.trim(),
+    active_ingredients: params.activeIngredients?.trim() || null,
+    dose_text: params.doseText.trim(),
+    start_date: params.startDateIso,
+    duration_days: params.durationDays,
+    end_date: endDate,
+    frequency_type: params.frequencyType,
+    frequency_value: params.frequencyValue,
+    frequency_label: params.frequencyLabel.trim(),
+    min_safety_hours: params.minSafetyHours,
+    notes: params.notes?.trim() || null,
+  });
 }
 
 export async function suspendTreatmentItem(params: {
@@ -374,6 +519,64 @@ export async function registerDoseTransaction(params: {
   });
 }
 
+export async function revertDoseLogTransaction(params: {
+  familyId: string;
+  doseLogId: string;
+}): Promise<void> {
+  await ensureAnonymousAuth();
+  const logRef = doc(db, `families/${params.familyId}/dose_logs/${params.doseLogId}`);
+  const logSnap = await getDoc(logRef);
+  if (!logSnap.exists()) return;
+
+  const logData = logSnap.data() as DoseLog;
+  const treatmentRef = doc(
+    db,
+    `families/${params.familyId}/treatments/${logData.treatment_item_id}`
+  );
+
+  const logsSnap = await getDocs(
+    query(
+      collection(db, `families/${params.familyId}/dose_logs`),
+      where('treatment_item_id', '==', logData.treatment_item_id)
+    )
+  );
+
+  const remainingLogs = logsSnap.docs
+    .filter((d) => d.id !== params.doseLogId)
+    .map((d) => d.data() as DoseLog)
+    .sort((a, b) => new Date(b.administered_at).getTime() - new Date(a.administered_at).getTime());
+
+  const latestLog = remainingLogs[0] ?? null;
+
+  await runTransaction(db, async (tx) => {
+    const tSnap = await tx.get(treatmentRef);
+    tx.delete(logRef);
+
+    if (!tSnap.exists()) return;
+    const treatment = tSnap.data() as TreatmentItem;
+
+    let nextDueIso: string | null = null;
+    if (latestLog) {
+      const lastMs = new Date(latestLog.administered_at).getTime();
+      if (treatment.frequency_type === 'hours') {
+        nextDueIso = new Date(lastMs + treatment.frequency_value * 3600000).toISOString();
+      } else if (treatment.frequency_type === 'days') {
+        nextDueIso = new Date(lastMs + treatment.frequency_value * 86400000).toISOString();
+      } else {
+        nextDueIso = new Date(lastMs + treatment.min_safety_hours * 3600000).toISOString();
+      }
+    }
+
+    tx.update(treatmentRef, {
+      doses_administered_count: remainingLogs.length,
+      next_due_at: nextDueIso,
+      status: treatment.status === 'suspended' ? 'suspended' : 'active',
+      last_administered_at: latestLog ? latestLog.administered_at : deleteField(),
+      last_administered_by: latestLog ? latestLog.administered_by_member_name : deleteField(),
+    });
+  });
+}
+
 export async function createSymptomLogRecord(params: {
   familyId: string;
   memberId: string;
@@ -398,4 +601,27 @@ export async function createSymptomLogRecord(params: {
   };
   await setDoc(ref, data);
   return ref.id;
+}
+
+export async function updateSymptomLogRecord(params: {
+  familyId: string;
+  symptomLogId: string;
+  temperatureCelsius: number | null;
+  symptoms: string[];
+  notes: string | null;
+}): Promise<void> {
+  await ensureAnonymousAuth();
+  await updateDoc(doc(db, `families/${params.familyId}/symptom_logs/${params.symptomLogId}`), {
+    temperature_celsius: params.temperatureCelsius,
+    symptoms: params.symptoms,
+    notes: params.notes?.trim() || null,
+  });
+}
+
+export async function deleteSymptomLogRecord(params: {
+  familyId: string;
+  symptomLogId: string;
+}): Promise<void> {
+  await ensureAnonymousAuth();
+  await deleteDoc(doc(db, `families/${params.familyId}/symptom_logs/${params.symptomLogId}`));
 }

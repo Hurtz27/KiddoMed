@@ -1,67 +1,106 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { Card } from '../../components/ui/Card';
+import { ChipGroup, ChipOption } from '../../components/ui/ChipGroup';
+import { FormField } from '../../components/ui/FormField';
+import { PillButton } from '../../components/ui/PillButton';
 import { useKiddoMed } from '../../context/KiddoMedContext';
-import { createSymptomLogRecord } from '../../services/kiddomed';
+import {
+  createSymptomLogRecord,
+  deleteSymptomLogRecord,
+  updateSymptomLogRecord,
+} from '../../services/kiddomed';
+import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { getTemperatureColor } from '../../utils/formatting';
 
-const COMMON_SYMPTOMS = ['Fiebre', 'Tos', 'Congestión', 'Vómito', 'Diarrea', 'Decaimiento', 'Dolor'];
+const COMMON_SYMPTOMS: ChipOption<string>[] = [
+  'Fiebre',
+  'Tos',
+  'Congestión',
+  'Vómito',
+  'Diarrea',
+  'Decaimiento',
+  'Dolor',
+].map((s) => ({ label: s, value: s }));
 
 export default function AddSymptomModal() {
-  const { memberId } = useLocalSearchParams<{ memberId: string }>();
+  const { memberId, symptomLogId } = useLocalSearchParams<{
+    memberId?: string;
+    symptomLogId?: string;
+  }>();
   const router = useRouter();
-  const { session, illnesses } = useKiddoMed();
+  const navigation = useNavigation();
+  const { session, illnesses, symptomLogs } = useKiddoMed();
+
+  const existing = symptomLogId ? symptomLogs.find((s) => s.id === symptomLogId) : undefined;
+  const isEditing = Boolean(existing);
+  const resolvedMemberId = existing?.member_id ?? memberId;
 
   const activeIllness = illnesses.find(
-    (i) => i.member_id === memberId && i.status === 'active'
+    (i) => i.member_id === resolvedMemberId && i.status === 'active'
   );
 
-  const [tempText, setTempText] = useState('');
-  const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
-  const [notes, setNotes] = useState('');
+  const [tempText, setTempText] = useState(
+    existing?.temperature_celsius !== null && existing?.temperature_celsius !== undefined
+      ? String(existing.temperature_celsius)
+      : ''
+  );
+  const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>(existing?.symptoms ?? []);
+  const [notes, setNotes] = useState(existing?.notes ?? '');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    navigation.setOptions({
+      title: isEditing ? 'Editar Nota / Síntoma' : 'Fiebre y Síntomas',
+    });
+  }, [isEditing, navigation]);
 
   const parsedTemp = tempText.trim() ? Number(tempText.replace(',', '.')) : null;
   const tempValid =
     parsedTemp === null || (!Number.isNaN(parsedTemp) && parsedTemp >= 34 && parsedTemp <= 43);
 
-  function toggleSymptom(sym: string) {
-    setSelectedSymptoms((prev) =>
-      prev.includes(sym) ? prev.filter((s) => s !== sym) : [...prev, sym]
-    );
-  }
-
   async function handleSave() {
-    if (!session || !memberId) return;
+    if (!session) return;
     if (!tempValid) {
       Alert.alert('Temperatura inválida', 'Ingresa una temperatura válida entre 34.0 y 43.0 °C.');
       return;
     }
     if (parsedTemp === null && selectedSymptoms.length === 0 && !notes.trim()) {
-      Alert.alert('Sin datos', 'Ingresa la temperatura o selecciona al menos un síntoma.');
+      Alert.alert('Sin datos', 'Ingresa la temperatura, un síntoma o una nota.');
       return;
     }
 
     setSaving(true);
     try {
-      await createSymptomLogRecord({
-        familyId: session.family_id,
-        memberId,
-        illnessId: activeIllness?.id ?? null,
-        temperatureCelsius: parsedTemp,
-        symptoms: selectedSymptoms,
-        notes: notes || null,
-        recordedByName: session.display_name,
-      });
+      if (isEditing && existing) {
+        await updateSymptomLogRecord({
+          familyId: session.family_id,
+          symptomLogId: existing.id,
+          temperatureCelsius: parsedTemp,
+          symptoms: selectedSymptoms,
+          notes: notes || null,
+        });
+      } else {
+        if (!resolvedMemberId) return;
+        await createSymptomLogRecord({
+          familyId: session.family_id,
+          memberId: resolvedMemberId,
+          illnessId: activeIllness?.id ?? null,
+          temperatureCelsius: parsedTemp,
+          symptoms: selectedSymptoms,
+          notes: notes || null,
+          recordedByName: session.display_name,
+        });
+      }
       router.back();
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo guardar.');
@@ -70,100 +109,147 @@ export default function AddSymptomModal() {
     }
   }
 
+  function handleDelete() {
+    if (!session || !existing) return;
+    Alert.alert(
+      'Eliminar registro',
+      '¿Seguro que deseas eliminar esta nota/síntoma?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await deleteSymptomLogRecord({
+                familyId: session.family_id,
+                symptomLogId: existing.id,
+              });
+              router.back();
+            } catch (err) {
+              Alert.alert(
+                'Error',
+                err instanceof Error ? err.message : 'No se pudo eliminar el registro.'
+              );
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  const tempColor = getTemperatureColor(tempValid ? parsedTemp : null);
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.label}>Temperatura (°C)</Text>
-      <TextInput
-        style={[
-          styles.tempInput,
-          { color: getTemperatureColor(tempValid ? parsedTemp : null) },
-        ]}
-        placeholder="Ej. 38.5"
-        keyboardType="decimal-pad"
-        value={tempText}
-        onChangeText={setTempText}
-      />
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Card style={styles.tempCard}>
+        <Text style={styles.fieldLabel}>Temperatura (°C)</Text>
+        <View style={styles.tempInputWrap}>
+          <TextInput
+            style={[styles.tempInput, typography.tabularNums, { color: tempColor }]}
+            placeholder="36.5"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="decimal-pad"
+            value={tempText}
+            onChangeText={setTempText}
+          />
+          <Text style={[styles.tempUnit, { color: tempColor }]}>°C</Text>
+        </View>
+      </Card>
 
-      <Text style={styles.label}>Síntomas observados</Text>
-      <View style={styles.chipRow}>
-        {COMMON_SYMPTOMS.map((s) => {
-          const active = selectedSymptoms.includes(s);
-          return (
-            <Pressable
-              key={s}
-              style={[styles.chip, active && styles.chipActive]}
-              onPress={() => toggleSymptom(s)}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{s}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <Card style={styles.formCard}>
+        <Text style={styles.fieldLabel}>Síntomas observados</Text>
+        <ChipGroup
+          multi
+          options={COMMON_SYMPTOMS}
+          value={selectedSymptoms}
+          onChange={setSelectedSymptoms}
+          style={{ marginBottom: spacing.lg }}
+        />
 
-      <Text style={styles.label}>Notas clínicas (Opcional)</Text>
-      <TextInput
-        style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
-        multiline
-        placeholder="Ej. Se tomó baño tibio"
-        value={notes}
-        onChangeText={setNotes}
-      />
+        <FormField
+          label="Notas clínicas (Opcional)"
+          placeholder="Ej. Se tomó baño tibio"
+          value={notes}
+          onChangeText={setNotes}
+          multiline
+          containerStyle={{ marginBottom: 0 }}
+        />
+      </Card>
 
-      <Pressable
-        style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+      <PillButton
+        label={isEditing ? 'Actualizar Registro' : 'Guardar Registro'}
+        icon="checkmark-circle"
+        loading={saving}
+        disabled={deleting}
         onPress={handleSave}
-        disabled={saving}
-      >
-        {saving ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.saveText}>Guardar Registro</Text>
-        )}
-      </Pressable>
+      />
+
+      {isEditing && (
+        <PillButton
+          label="Eliminar Registro"
+          icon="trash-outline"
+          variant="danger"
+          loading={deleting}
+          disabled={saving}
+          onPress={handleDelete}
+          style={{ marginTop: spacing.md }}
+        />
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  content: { padding: 20 },
-  label: { fontSize: 13, fontWeight: '700', color: '#334155', marginTop: 14, marginBottom: 8 },
-  tempInput: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 28,
-    fontWeight: '800',
-    textAlign: 'center',
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
+  content: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
   },
-  chipActive: { backgroundColor: '#EA580C', borderColor: '#EA580C' },
-  chipText: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  chipTextActive: { color: '#FFFFFF' },
-  input: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 15,
-  },
-  saveBtn: {
-    backgroundColor: '#EA580C',
-    borderRadius: 12,
-    paddingVertical: 15,
+  tempCard: {
+    marginBottom: spacing.lg,
     alignItems: 'center',
-    marginTop: 24,
   },
-  saveText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
+  fieldLabel: {
+    ...typography.subhead,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+    alignSelf: 'flex-start',
+  },
+  tempInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    width: '100%',
+  },
+  tempInput: {
+    fontSize: 36,
+    fontWeight: '700',
+    textAlign: 'center',
+    minWidth: 100,
+  },
+  tempUnit: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginLeft: spacing.xs,
+  },
+  formCard: {
+    marginBottom: spacing.xl,
+  },
 });

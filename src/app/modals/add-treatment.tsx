@@ -1,6 +1,6 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,31 +13,77 @@ import {
   View,
 } from 'react-native';
 import { useKiddoMed } from '../../context/KiddoMedContext';
-import { createTreatmentItemRecord } from '../../services/kiddomed';
+import {
+  createTreatmentItemRecord,
+  updateTreatmentItemRecord,
+} from '../../services/kiddomed';
 import { FrequencyType, TreatmentItemType } from '../../types/database';
 import { calculateEndDateIso, formatDateOnly } from '../../utils/formatting';
 
-export default function AddTreatmentModal() {
-  const { memberId, illnessId } = useLocalSearchParams<{
-    memberId: string;
-    illnessId: string;
+export default function AddOrEditTreatmentModal() {
+  const { memberId, illnessId, treatmentId, copyFromTreatmentId } = useLocalSearchParams<{
+    memberId?: string;
+    illnessId?: string;
+    treatmentId?: string;
+    copyFromTreatmentId?: string;
   }>();
   const router = useRouter();
-  const { session } = useKiddoMed();
+  const navigation = useNavigation();
+  const { session, treatments } = useKiddoMed();
 
-  const [itemType, setItemType] = useState<TreatmentItemType>('medication');
-  const [brandName, setBrandName] = useState('');
-  const [activeIngredients, setActiveIngredients] = useState('');
-  const [doseText, setDoseText] = useState('');
-  const [startDate, setStartDate] = useState(new Date());
+  const existing = treatmentId ? treatments.find((t) => t.id === treatmentId) : undefined;
+  const template =
+    !existing && copyFromTreatmentId
+      ? treatments.find((t) => t.id === copyFromTreatmentId)
+      : undefined;
+  const source = existing ?? template;
+  const isEditing = Boolean(existing);
+
+  const [itemType, setItemType] = useState<TreatmentItemType>(
+    source?.item_type ?? 'medication'
+  );
+  const [brandName, setBrandName] = useState(source?.brand_name ?? '');
+  const [activeIngredients, setActiveIngredients] = useState(
+    source?.active_ingredients ?? ''
+  );
+  const [doseText, setDoseText] = useState(source?.dose_text ?? '');
+  const [startDate, setStartDate] = useState(
+    existing ? new Date(existing.start_date) : new Date()
+  );
   const [showStartPicker, setShowStartPicker] = useState(false);
-  const [durationDays, setDurationDays] = useState('7');
-  const [frequencyType, setFrequencyType] = useState<FrequencyType>('hours');
-  const [frequencyValue, setFrequencyValue] = useState('8');
-  const [prnLabel, setPrnLabel] = useState('Cada que haya fiebre > 38 °C');
-  const [minSafetyHours, setMinSafetyHours] = useState('6');
-  const [notes, setNotes] = useState('');
+  const [durationDays, setDurationDays] = useState(
+    source?.duration_days !== null && source?.duration_days !== undefined
+      ? String(source.duration_days)
+      : source
+      ? ''
+      : '7'
+  );
+  const [frequencyType, setFrequencyType] = useState<FrequencyType>(
+    source?.frequency_type ?? 'hours'
+  );
+  const [frequencyValue, setFrequencyValue] = useState(
+    source ? String(source.frequency_value) : '8'
+  );
+  const [prnLabel, setPrnLabel] = useState(
+    source?.frequency_type === 'prn'
+      ? source.frequency_label
+      : 'Cada que haya fiebre > 38 °C'
+  );
+  const [minSafetyHours, setMinSafetyHours] = useState(
+    source ? String(source.min_safety_hours) : '6'
+  );
+  const [notes, setNotes] = useState(source?.notes ?? '');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    navigation.setOptions({
+      title: isEditing
+        ? 'Editar Tratamiento'
+        : template
+        ? 'Copiar Tratamiento'
+        : 'Nuevo Elemento de Tratamiento',
+    });
+  }, [isEditing, template, navigation]);
 
   const calculatedEndDate = useMemo(() => {
     const days = parseInt(durationDays, 10);
@@ -46,7 +92,7 @@ export default function AddTreatmentModal() {
   }, [startDate, durationDays]);
 
   async function handleSave() {
-    if (!session || !memberId || !illnessId) return;
+    if (!session) return;
     if (!brandName.trim() || !doseText.trim()) {
       Alert.alert('Campos requeridos', 'Ingresa el nombre y la dosis o indicación.');
       return;
@@ -70,22 +116,41 @@ export default function AddTreatmentModal() {
 
     setSaving(true);
     try {
-      await createTreatmentItemRecord({
-        familyId: session.family_id,
-        memberId,
-        illnessId,
-        itemType,
-        brandName,
-        activeIngredients: itemType === 'medication' ? activeIngredients || null : null,
-        doseText,
-        startDateIso: startDate.toISOString(),
-        durationDays: daysNum && daysNum > 0 ? daysNum : null,
-        frequencyType,
-        frequencyValue: frequencyType === 'prn' ? safetyNum || 6 : freqNum,
-        frequencyLabel: freqLabel,
-        minSafetyHours: !Number.isNaN(safetyNum) && safetyNum > 0 ? safetyNum : 4,
-        notes: notes || null,
-      });
+      if (isEditing && existing) {
+        await updateTreatmentItemRecord({
+          familyId: session.family_id,
+          treatmentId: existing.id,
+          itemType,
+          brandName,
+          activeIngredients: itemType === 'medication' ? activeIngredients || null : null,
+          doseText,
+          startDateIso: startDate.toISOString(),
+          durationDays: daysNum && daysNum > 0 ? daysNum : null,
+          frequencyType,
+          frequencyValue: frequencyType === 'prn' ? safetyNum || 6 : freqNum,
+          frequencyLabel: freqLabel,
+          minSafetyHours: !Number.isNaN(safetyNum) && safetyNum > 0 ? safetyNum : 4,
+          notes: notes || null,
+        });
+      } else {
+        if (!memberId || !illnessId) return;
+        await createTreatmentItemRecord({
+          familyId: session.family_id,
+          memberId,
+          illnessId,
+          itemType,
+          brandName,
+          activeIngredients: itemType === 'medication' ? activeIngredients || null : null,
+          doseText,
+          startDateIso: startDate.toISOString(),
+          durationDays: daysNum && daysNum > 0 ? daysNum : null,
+          frequencyType,
+          frequencyValue: frequencyType === 'prn' ? safetyNum || 6 : freqNum,
+          frequencyLabel: freqLabel,
+          minSafetyHours: !Number.isNaN(safetyNum) && safetyNum > 0 ? safetyNum : 4,
+          notes: notes || null,
+        });
+      }
       router.back();
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo guardar.');
@@ -252,7 +317,9 @@ export default function AddTreatmentModal() {
         {saving ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
-          <Text style={styles.saveText}>Guardar Elemento del Tratamiento</Text>
+          <Text style={styles.saveText}>
+            {isEditing ? 'Actualizar Tratamiento' : 'Guardar Elemento del Tratamiento'}
+          </Text>
         )}
       </Pressable>
     </ScrollView>

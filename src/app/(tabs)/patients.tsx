@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   Alert,
+  LayoutAnimation,
   Modal,
   Pressable,
   ScrollView,
@@ -11,12 +13,13 @@ import {
   Text,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Card } from '../../components/ui/Card';
+import { PillButton } from '../../components/ui/PillButton';
+import { StatusBanner } from '../../components/ui/StatusBanner';
 import { useKiddoMed } from '../../context/KiddoMedContext';
-import {
-  generateMemberInviteCode,
-  suspendTreatmentItem,
-  updateIllnessStatus,
-} from '../../services/kiddomed';
+import { deleteFamilyMember, generateMemberInviteCode } from '../../services/kiddomed';
+import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { AccessRole, FamilyMember } from '../../types/database';
 import {
   calculateAgeLabel,
@@ -26,11 +29,56 @@ import {
 
 export default function MembersScreen() {
   const router = useRouter();
-  const { session, isCaregiver, members, illnesses, treatments } = useKiddoMed();
+  const { session, isCaregiver, members, illnesses } = useKiddoMed();
 
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const [menuMember, setMenuMember] = useState<FamilyMember | null>(null);
   const [inviteTarget, setInviteTarget] = useState<FamilyMember | null>(null);
   const [inviteRole, setInviteRole] = useState<AccessRole>('caregiver');
   const [generating, setGenerating] = useState(false);
+
+  function toggleExpand(memberId: string) {
+    Haptics.selectionAsync().catch(() => {});
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedIds((prev) => ({ ...prev, [memberId]: !prev[memberId] }));
+  }
+
+  function handleDeleteMember(member: FamilyMember) {
+    if (!session) return;
+    if (member.id === session.member_id) {
+      Alert.alert(
+        'Acción no permitida',
+        'No puedes eliminar el perfil del miembro con el que iniciaste sesión.'
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Eliminar miembro',
+      `¿Seguro que deseas eliminar a "${member.display_name}"? También se eliminarán sus enfermedades, tratamientos, dosis y síntomas registrados.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteFamilyMember({
+                familyId: session.family_id,
+                memberId: member.id,
+                inviteCode: member.invite_code,
+              });
+            } catch (err) {
+              Alert.alert(
+                'Error',
+                err instanceof Error ? err.message : 'No se pudo eliminar al miembro.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  }
 
   async function handleGenerateInvite() {
     if (!session || !inviteTarget) return;
@@ -56,399 +104,607 @@ export default function MembersScreen() {
     }
   }
 
-  function handleToggleIllness(illnessId: string, currentStatus: 'active' | 'resolved') {
-    if (!session) return;
-    const nextStatus = currentStatus === 'active' ? 'resolved' : 'active';
-    Alert.alert(
-      nextStatus === 'resolved' ? 'Marcar como resuelta' : 'Reactivar enfermedad',
-      nextStatus === 'resolved'
-        ? 'Saldrá de la línea del tiempo activa pero permanecerá en el historial.'
-        : 'Volverá a mostrarse en tratamientos activos.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Confirmar',
-          onPress: () =>
-            void updateIllnessStatus({
-              familyId: session.family_id,
-              illnessId,
-              status: nextStatus,
-            }),
-        },
-      ]
-    );
-  }
-
-  function handleSuspendTreatment(treatmentId: string, name: string) {
-    if (!session) return;
-    Alert.alert(
-      `Suspender ${name}`,
-      'El medicamento dejará de mostrarse como pendiente pero conservará su historial de tomas.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Suspender',
-          style: 'destructive',
-          onPress: () =>
-            void suspendTreatmentItem({
-              familyId: session.family_id,
-              treatmentId,
-              reason: 'Suspendido por indicación / cambio de tratamiento',
-            }),
-        },
-      ]
-    );
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.headerRow}>
-        <Text style={styles.sectionTitle}>Miembros de la Familia</Text>
-        {isCaregiver && (
-          <Pressable style={styles.addBtn} onPress={() => router.push('/modals/add-member')}>
-            <Ionicons name="add" size={18} color="#FFFFFF" />
-            <Text style={styles.addBtnText}>Miembro</Text>
-          </Pressable>
-        )}
-      </View>
-
-      {members.map((member) => {
-        const memberIllnesses = illnesses.filter((i) => i.member_id === member.id);
-        const age = calculateAgeLabel(member.birth_date);
-
-        return (
-          <View key={member.id} style={styles.memberCard}>
-            <View style={styles.memberHeader}>
-              <View style={[styles.avatar, { backgroundColor: member.accent_color || '#0284C7' }]}>
-                <Text style={styles.avatarText}>
-                  {member.display_name.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.memberName}>{member.display_name}</Text>
-                <Text style={styles.memberMeta}>
-                  {getRelationshipLabel(member.relationship)}
-                  {age ? ` · ${age}` : ''}
-                  {member.weight_kg ? ` · ${member.weight_kg} kg` : ''}
-                </Text>
-                {member.has_app_access && (
-                  <Text style={styles.accessBadge}>
-                    Acceso App: {member.access_role === 'caregiver' ? 'Cuidador (Admin)' : 'Paciente (Lectura)'}
-                    {member.invite_code && !member.linked_uid ? ` · Código: ${member.invite_code}` : ''}
-                  </Text>
-                )}
-              </View>
-            </View>
-
-            {isCaregiver && (
-              <View style={styles.memberActions}>
-                <Pressable
-                  style={styles.actionPill}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/modals/add-illness',
-                      params: { memberId: member.id },
-                    })
-                  }
-                >
-                  <Ionicons name="medkit-outline" size={14} color="#0284C7" />
-                  <Text style={styles.actionPillText}>+ Enfermedad</Text>
-                </Pressable>
-
-                {!member.linked_uid && (
-                  <Pressable
-                    style={[styles.actionPill, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}
-                    onPress={() => {
-                      setInviteRole('caregiver');
-                      setInviteTarget(member);
-                    }}
-                  >
-                    <Ionicons name="key-outline" size={14} color="#15803D" />
-                    <Text style={[styles.actionPillText, { color: '#15803D' }]}>
-                      {member.invite_code ? 'Reenviar Código' : 'Invitar a la App'}
-                    </Text>
-                  </Pressable>
-                )}
-              </View>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={typography.largeTitle}>Miembros</Text>
+            {session?.family_name && (
+              <Text style={typography.subhead}>{session.family_name}</Text>
             )}
+          </View>
+          {isCaregiver && (
+            <Pressable
+              style={styles.addBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                router.push('/modals/add-member');
+              }}
+            >
+              <Ionicons name="add" size={18} color={colors.textInverse} />
+              <Text style={styles.addBtnText}>Miembro</Text>
+            </Pressable>
+          )}
+        </View>
 
-            {member.allergies.length > 0 && (
-              <Text style={styles.allergyLine}>⚠ Alergias: {member.allergies.join(', ')}</Text>
-            )}
+        {members.map((member) => {
+          const isExpanded = Boolean(expandedIds[member.id]);
+          const memberIllnesses = illnesses.filter((i) => i.member_id === member.id);
+          const activeCount = memberIllnesses.filter((i) => i.status === 'active').length;
+          const age = calculateAgeLabel(member.birth_date);
 
-            <Text style={styles.subHeader}>Historial de Enfermedades</Text>
-            {memberIllnesses.length === 0 ? (
-              <Text style={styles.emptyText}>Sin enfermedades registradas.</Text>
-            ) : (
-              memberIllnesses.map((ill) => {
-                const illTreatments = treatments.filter((t) => t.illness_id === ill.id);
-                return (
+          return (
+            <Card key={member.id} style={styles.memberCard}>
+              <Pressable
+                style={styles.memberHeader}
+                onPress={() => toggleExpand(member.id)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isExpanded }}
+              >
+                {isExpanded && (
                   <View
-                    key={ill.id}
-                    style={[
-                      styles.illnessCard,
-                      ill.status === 'resolved' && styles.illnessResolved,
-                    ]}
+                    style={[styles.avatar, { backgroundColor: member.accent_color || colors.primary }]}
                   >
-                    <View style={styles.illnessTop}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.diagnosisText}>{ill.diagnosis}</Text>
-                        <Text style={styles.doctorText}>
-                          Dr./Dra. {ill.doctor_name} · {formatDateOnly(ill.diagnosed_at)}
-                        </Text>
-                      </View>
-                      {isCaregiver && (
-                        <Pressable
-                          style={styles.statusChip}
-                          onPress={() => handleToggleIllness(ill.id, ill.status)}
-                        >
-                          <Text style={styles.statusChipText}>
-                            {ill.status === 'active' ? 'Activa' : 'Resuelta'}
-                          </Text>
-                        </Pressable>
-                      )}
-                    </View>
+                    <Text style={styles.avatarText}>
+                      {member.display_name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
 
-                    {illTreatments.map((tr) => (
-                      <View key={tr.id} style={styles.trRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.trName}>
-                            • {tr.brand_name}
-                            {tr.active_ingredients ? ` (${tr.active_ingredients})` : ''}
-                          </Text>
-                          <Text style={styles.trMeta}>
-                            {tr.dose_text} · {tr.frequency_label}
-                            {tr.end_date ? ` · Hasta ${formatDateOnly(tr.end_date)}` : ''}
-                            {tr.status === 'suspended' ? ' · [SUSPENDIDO]' : ''}
-                            {tr.status === 'completed' ? ' · [COMPLETADO]' : ''}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.memberName}>{member.display_name}</Text>
+                  <Text style={styles.memberMeta}>
+                    {getRelationshipLabel(member.relationship)}
+                    {isExpanded && age ? ` · ${age}` : ''}
+                    {isExpanded && member.weight_kg ? ` · ${member.weight_kg} kg` : ''}
+                  </Text>
+                </View>
+
+                <View style={styles.headerActions}>
+                  {isExpanded && isCaregiver && (
+                    <Pressable
+                      style={styles.menuBtn}
+                      hitSlop={8}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        setMenuMember(member);
+                      }}
+                      accessibilityLabel={`Opciones de ${member.display_name}`}
+                    >
+                      <Ionicons name="ellipsis-vertical" size={18} color={colors.textSecondary} />
+                    </Pressable>
+                  )}
+                  <Ionicons
+                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={18}
+                    color={colors.textTertiary}
+                  />
+                </View>
+              </Pressable>
+
+              {isExpanded && (
+                <>
+                  {(activeCount > 0 || member.has_app_access) && (
+                    <View style={styles.expandedBadges}>
+                      {activeCount > 0 && (
+                        <View style={styles.activeCountPill}>
+                          <Text style={styles.activeCountText}>{activeCount} activa(s)</Text>
+                        </View>
+                      )}
+                      {member.has_app_access && (
+                        <View style={styles.accessBadgePill}>
+                          <Text style={styles.accessBadge}>
+                            {member.access_role === 'caregiver'
+                              ? 'Cuidador (Admin)'
+                              : 'Paciente (Lectura)'}
+                            {member.invite_code && !member.linked_uid
+                              ? ` · Código: ${member.invite_code}`
+                              : ''}
                           </Text>
                         </View>
-                        {isCaregiver && tr.status === 'active' && (
-                          <Pressable
-                            onPress={() => handleSuspendTreatment(tr.id, tr.brand_name)}
-                            style={styles.suspendBtn}
-                          >
-                            <Text style={styles.suspendText}>Suspender</Text>
-                          </Pressable>
-                        )}
-                      </View>
-                    ))}
+                      )}
+                    </View>
+                  )}
 
-                    {isCaregiver && ill.status === 'active' && (
+                  {member.allergies.length > 0 && (
+                    <StatusBanner
+                      tone="danger"
+                      icon="alert-circle"
+                      message={`Alergias: ${member.allergies.join(', ')}`}
+                      style={styles.allergyBanner}
+                    />
+                  )}
+
+                  <View style={styles.subHeaderRow}>
+                    <Text style={styles.subHeader}>Historial de Enfermedades</Text>
+                    {memberIllnesses.length > 0 && (
                       <Pressable
-                        style={styles.addTrBtn}
-                        onPress={() =>
+                        style={styles.historyBtn}
+                        onPress={() => {
+                          Haptics.selectionAsync().catch(() => {});
                           router.push({
-                            pathname: '/modals/add-treatment',
-                            params: { memberId: member.id, illnessId: ill.id },
-                          })
-                        }
+                            pathname: '/member-illnesses',
+                            params: { memberId: member.id },
+                          });
+                        }}
                       >
-                        <Ionicons name="add-circle-outline" size={15} color="#0284C7" />
-                        <Text style={styles.addTrText}>Agregar elemento de tratamiento</Text>
+                        <Ionicons name="time-outline" size={14} color={colors.primary} />
+                        <Text style={styles.historyBtnText}>
+                          Historial{memberIllnesses.length > 3 ? ` (${memberIllnesses.length})` : ''}
+                        </Text>
                       </Pressable>
                     )}
                   </View>
-                );
-              })
-            )}
-          </View>
-        );
-      })}
+                  {memberIllnesses.length === 0 ? (
+                    <Text style={styles.emptyText}>Sin enfermedades registradas.</Text>
+                  ) : (
+                    memberIllnesses.slice(0, 3).map((ill) => (
+                      <Pressable
+                        key={ill.id}
+                        style={({ pressed }) => [
+                          styles.illnessCard,
+                          ill.status === 'resolved' && styles.illnessResolved,
+                          pressed && styles.illnessPressed,
+                        ]}
+                        onPress={() => {
+                          Haptics.selectionAsync().catch(() => {});
+                          router.push({
+                            pathname: '/illness-detail',
+                            params: { illnessId: ill.id },
+                          });
+                        }}
+                      >
+                        <View style={styles.illnessTop}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.diagnosisText}>{ill.diagnosis}</Text>
+                            <Text style={styles.doctorText}>
+                              Dr./Dra. {ill.doctor_name} · {formatDateOnly(ill.diagnosed_at)}
+                            </Text>
+                          </View>
+                          <View style={styles.illnessRight}>
+                            <View
+                              style={[
+                                styles.statusChip,
+                                ill.status === 'resolved' && styles.statusChipResolved,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.statusChipText,
+                                  ill.status === 'resolved' && styles.statusChipTextResolved,
+                                ]}
+                              >
+                                {ill.status === 'active' ? 'Activa' : 'Resuelta'}
+                              </Text>
+                            </View>
+                            <Ionicons
+                              name="chevron-forward"
+                              size={16}
+                              color={colors.textTertiary}
+                            />
+                          </View>
+                        </View>
+                      </Pressable>
+                    ))
+                  )}
+                </>
+              )}
+            </Card>
+          );
+        })}
 
-      {/* Modal de Invitación con Rol */}
-      <Modal visible={Boolean(inviteTarget)} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              Invitar a {inviteTarget?.display_name}
-            </Text>
-            <Text style={styles.modalSub}>Elige qué nivel de acceso tendrá en la aplicación:</Text>
+        {/* Menú de opciones de miembro */}
+        <Modal
+          visible={Boolean(menuMember)}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMenuMember(null)}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={() => setMenuMember(null)}>
+            <Pressable style={styles.menuCardWrapper} onPress={() => {}}>
+              <Card style={styles.menuCard}>
+                <Text style={styles.menuTitle}>{menuMember?.display_name}</Text>
 
-            <Pressable
-              style={[styles.roleOption, inviteRole === 'caregiver' && styles.roleOptionActive]}
-              onPress={() => setInviteRole('caregiver')}
-            >
-              <Text style={styles.roleTitle}>Cuidador (Administrador)</Text>
-              <Text style={styles.roleDesc}>
-                Puede editar familia, agregar enfermedades/tratamientos y marcar dosis como administradas.
-              </Text>
+                <Pressable
+                  style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+                  onPress={() => {
+                    const target = menuMember;
+                    setMenuMember(null);
+                    if (!target) return;
+                    router.push({
+                      pathname: '/modals/add-member',
+                      params: { memberId: target.id },
+                    });
+                  }}
+                >
+                  <Ionicons name="create-outline" size={20} color={colors.textPrimary} />
+                  <Text style={styles.menuItemText}>Editar</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+                  onPress={() => {
+                    const target = menuMember;
+                    setMenuMember(null);
+                    if (!target) return;
+                    router.push({
+                      pathname: '/modals/add-illness',
+                      params: { memberId: target.id },
+                    });
+                  }}
+                >
+                  <Ionicons name="medkit-outline" size={20} color={colors.primary} />
+                  <Text style={styles.menuItemText}>+ Enfermedad</Text>
+                </Pressable>
+
+                {menuMember && !menuMember.linked_uid && (
+                  <Pressable
+                    style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+                    onPress={() => {
+                      const target = menuMember;
+                      setMenuMember(null);
+                      setInviteRole('caregiver');
+                      setInviteTarget(target);
+                    }}
+                  >
+                    <Ionicons name="key-outline" size={20} color={colors.successText} />
+                    <Text style={styles.menuItemText}>
+                      {menuMember.invite_code ? 'Reenviar Código' : 'Invitar a la App'}
+                    </Text>
+                  </Pressable>
+                )}
+
+                {menuMember && menuMember.id !== session?.member_id && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      styles.menuItemLast,
+                      pressed && styles.menuItemPressed,
+                    ]}
+                    onPress={() => {
+                      const target = menuMember;
+                      setMenuMember(null);
+                      if (target) handleDeleteMember(target);
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                    <Text style={[styles.menuItemText, styles.menuItemDanger]}>Eliminar</Text>
+                  </Pressable>
+                )}
+              </Card>
             </Pressable>
+          </Pressable>
+        </Modal>
 
-            <Pressable
-              style={[styles.roleOption, inviteRole === 'patient' && styles.roleOptionActive]}
-              onPress={() => setInviteRole('patient')}
-            >
-              <Text style={styles.roleTitle}>Paciente (Solo visualización)</Text>
-              <Text style={styles.roleDesc}>
-                Solo puede ver su historial, tratamientos y línea del tiempo. No puede modificar ni marcar tomas.
-              </Text>
-            </Pressable>
+        {/* Modal de Invitación con Rol */}
+        <Modal visible={Boolean(inviteTarget)} transparent animationType="fade">
+          <View style={styles.modalBackdrop}>
+            <Card style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Invitar a {inviteTarget?.display_name}</Text>
+              <Text style={styles.modalSub}>Elige qué nivel de acceso tendrá en la aplicación:</Text>
 
-            <View style={styles.modalButtons}>
-              <Pressable style={styles.cancelBtn} onPress={() => setInviteTarget(null)}>
-                <Text style={styles.cancelText}>Cancelar</Text>
-              </Pressable>
               <Pressable
-                style={[styles.confirmInviteBtn, generating && { opacity: 0.6 }]}
-                onPress={handleGenerateInvite}
-                disabled={generating}
+                style={[styles.roleOption, inviteRole === 'caregiver' && styles.roleOptionActive]}
+                onPress={() => {
+                  Haptics.selectionAsync().catch(() => {});
+                  setInviteRole('caregiver');
+                }}
               >
-                <Text style={styles.confirmInviteText}>Generar y Compartir</Text>
+                <Text style={styles.roleTitle}>Cuidador (Administrador)</Text>
+                <Text style={styles.roleDesc}>
+                  Puede editar familia, agregar enfermedades/tratamientos y marcar dosis como administradas.
+                </Text>
               </Pressable>
-            </View>
+
+              <Pressable
+                style={[styles.roleOption, inviteRole === 'patient' && styles.roleOptionActive]}
+                onPress={() => {
+                  Haptics.selectionAsync().catch(() => {});
+                  setInviteRole('patient');
+                }}
+              >
+                <Text style={styles.roleTitle}>Paciente (Solo visualización)</Text>
+                <Text style={styles.roleDesc}>
+                  Solo puede ver su historial, tratamientos y línea del tiempo. No puede modificar ni marcar tomas.
+                </Text>
+              </Pressable>
+
+              <View style={styles.modalButtons}>
+                <PillButton
+                  label="Cancelar"
+                  variant="secondary"
+                  onPress={() => setInviteTarget(null)}
+                  style={{ flex: 1 }}
+                />
+                <PillButton
+                  label="Compartir"
+                  loading={generating}
+                  onPress={handleGenerateInvite}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </Card>
           </View>
-        </View>
-      </Modal>
-    </ScrollView>
+        </Modal>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  content: { padding: 16, paddingBottom: 36 },
+  safe: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  container: {
+    flex: 1,
+  },
+  content: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl + spacing.md,
+  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: spacing.lg,
   },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A' },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#0284C7',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md + 2,
+    paddingVertical: spacing.sm + 1,
+    borderRadius: radius.pill,
   },
-  addBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  addBtnText: {
+    color: colors.textInverse,
+    fontWeight: '600',
+    fontSize: 14,
+  },
   memberCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderRadius: radius.xl,
+    marginBottom: spacing.lg,
   },
-  memberHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  memberHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
-  memberName: { fontSize: 17, fontWeight: '800', color: '#0F172A' },
-  memberMeta: { fontSize: 13, color: '#64748B', marginTop: 1 },
-  accessBadge: { fontSize: 11, color: '#0369A1', fontWeight: '700', marginTop: 3 },
-  memberActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  actionPill: {
+  avatarText: {
+    color: colors.textInverse,
+    fontWeight: '700',
+    fontSize: 20,
+  },
+  memberName: {
+    ...typography.title,
+    fontSize: 18,
+  },
+  memberMeta: {
+    ...typography.subhead,
+    ...typography.tabularNums,
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  menuBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandedBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  activeCountPill: {
+    backgroundColor: colors.warningSoft,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  activeCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.warningText,
+  },
+  accessBadgePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  accessBadge: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  menuCardWrapper: {
+    width: '100%',
+  },
+  menuCard: {
+    borderRadius: radius.xl,
+    padding: spacing.md,
+  },
+  menuTitle: {
+    ...typography.headline,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    marginBottom: spacing.xs,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+    borderRadius: radius.sm,
+  },
+  menuItemLast: {
+    borderBottomWidth: 0,
+  },
+  menuItemPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  menuItemText: {
+    ...typography.body,
+    fontWeight: '500',
+  },
+  menuItemDanger: {
+    color: colors.danger,
+  },
+  allergyBanner: {
+    marginTop: spacing.md,
+  },
+  subHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  subHeader: {
+    ...typography.footnote,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    color: colors.textTertiary,
+  },
+  historyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#F0F9FF',
-    borderColor: '#BAE6FD',
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
   },
-  actionPillText: { fontSize: 12, fontWeight: '700', color: '#0284C7' },
-  allergyLine: {
-    marginTop: 10,
-    backgroundColor: '#FEF2F2',
-    color: '#991B1B',
-    padding: 8,
-    borderRadius: 8,
+  historyBtnText: {
     fontSize: 12,
     fontWeight: '600',
+    color: colors.primary,
   },
-  subHeader: { fontSize: 13, fontWeight: '700', color: '#334155', marginTop: 14, marginBottom: 8 },
-  emptyText: { fontSize: 12, color: '#94A3B8', fontStyle: 'italic' },
+  emptyText: {
+    ...typography.subhead,
+    color: colors.textTertiary,
+  },
   illnessCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#0284C7',
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginTop: spacing.sm,
   },
-  illnessResolved: { borderLeftColor: '#94A3B8', opacity: 0.78 },
-  illnessTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  diagnosisText: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
-  doctorText: { fontSize: 12, color: '#475569', marginTop: 2 },
+  illnessResolved: {
+    opacity: 0.72,
+  },
+  illnessPressed: {
+    opacity: 0.84,
+  },
+  illnessTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  illnessRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  diagnosisText: {
+    ...typography.headline,
+    fontSize: 15,
+  },
+  doctorText: {
+    ...typography.footnote,
+    ...typography.tabularNums,
+    marginTop: 2,
+  },
   statusChip: {
-    backgroundColor: '#E2E8F0',
-    paddingHorizontal: 8,
+    backgroundColor: colors.warningSoft,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: radius.pill,
   },
-  statusChipText: { fontSize: 11, fontWeight: '700', color: '#334155' },
-  trRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+  statusChipResolved: {
+    backgroundColor: colors.successSoft,
   },
-  trName: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
-  trMeta: { fontSize: 11, color: '#475569', marginTop: 2 },
-  suspendBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: '#FEE2E2',
+  statusChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.warningText,
   },
-  suspendText: { fontSize: 11, fontWeight: '700', color: '#B91C1C' },
-  addTrBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+  statusChipTextResolved: {
+    color: colors.successText,
   },
-  addTrText: { fontSize: 12, fontWeight: '700', color: '#0284C7' },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
-    padding: 20,
+    padding: spacing.xl,
   },
-  modalCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A' },
-  modalSub: { fontSize: 13, color: '#475569', marginTop: 4, marginBottom: 14 },
+  modalCard: {
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+  },
+  modalTitle: {
+    ...typography.title,
+  },
+  modalSub: {
+    ...typography.subhead,
+    marginTop: spacing.xs,
+    marginBottom: spacing.md,
+  },
   roleOption: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm + 2,
+    backgroundColor: colors.surface,
   },
-  roleOptionActive: { borderColor: '#0284C7', backgroundColor: '#F0F9FF', borderWidth: 1.5 },
-  roleTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
-  roleDesc: { fontSize: 12, color: '#475569', marginTop: 2 },
-  modalButtons: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  cancelBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 10,
-    backgroundColor: '#F1F5F9',
+  roleOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
-  cancelText: { fontWeight: '700', color: '#334155' },
-  confirmInviteBtn: {
-    flex: 1.4,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 10,
-    backgroundColor: '#0284C7',
+  roleTitle: {
+    ...typography.headline,
+    fontSize: 14,
   },
-  confirmInviteText: { fontWeight: '700', color: '#FFFFFF' },
+  roleDesc: {
+    ...typography.footnote,
+    marginTop: 3,
+    lineHeight: 17,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: spacing.sm + 2,
+    marginTop: spacing.md,
+  },
 });

@@ -2,43 +2,29 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '../../components/ui/Card';
-import { PillButton } from '../../components/ui/PillButton';
+import { SlotDoseModal } from '../../components/ui/SlotDoseModal';
 import { StatusBanner } from '../../components/ui/StatusBanner';
 import { useKiddoMed } from '../../context/KiddoMedContext';
+import { exportMemberPdf } from '../../services/exportPdf';
 import { colors, radius, shadows, spacing, typography } from '../../theme/tokens';
-import {
-  formatDateTimeShort,
-  formatMinutesDiff,
-  formatTimeShort,
-  getRelationshipLabel,
-  getTemperatureColor,
-} from '../../utils/formatting';
+import { formatMinutesDiff } from '../../utils/formatting';
+import { buildTreatmentSchedule, MemberSlotGroup } from '../../utils/schedule';
 
-type PastNode =
-  | {
-      kind: 'dose';
-      id: string;
-      time: string;
-      title: string;
-      subtitle: string;
-      by: string;
-      notes: string | null;
-    }
-  | {
-      kind: 'symptom';
-      id: string;
-      time: string;
-      title: string;
-      color: string;
-      by: string;
-      notes: string | null;
-    };
-
-export default function TimelineDashboardScreen() {
+export default function TreatmentScheduleScreen() {
   const router = useRouter();
   const {
+    session,
     isCaregiver,
     isOffline,
     members,
@@ -47,599 +33,821 @@ export default function TimelineDashboardScreen() {
     doseLogs,
     symptomLogs,
     selectedMemberId,
-    setSelectedMemberId,
   } = useKiddoMed();
 
+  const [filterId, setFilterId] = useState<'all' | string>('all');
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
+  const [overdueExpanded, setOverdueExpanded] = useState(true);
+  const [prnExpanded, setPrnExpanded] = useState(true);
+  const [activeSlotGroup, setActiveSlotGroup] = useState<MemberSlotGroup | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [, setTick] = useState(0);
+
+  // Refresh relative countdowns every 30s
   useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 30000);
-    return () => clearInterval(timer);
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
   }, []);
 
-  const activeMember = members.find((m) => m.id === selectedMemberId) ?? members[0] ?? null;
+  const selectedMember =
+    filterId === 'all' ? null : members.find((m) => m.id === filterId) ?? null;
+  const fallbackMember = selectedMember ?? members.find((m) => m.id === selectedMemberId) ?? members[0] ?? null;
 
-  const activeTreatments = useMemo(() => {
-    if (!activeMember) return [];
-    const activeIllnessIds = new Set(
-      illnesses
-        .filter((i) => i.member_id === activeMember.id && i.status === 'active')
-        .map((i) => i.id)
-    );
-    return treatments.filter(
-      (t) =>
-        t.member_id === activeMember.id &&
-        t.status === 'active' &&
-        activeIllnessIds.has(t.illness_id)
-    );
-  }, [activeMember, illnesses, treatments]);
+  const schedule = useMemo(
+    () =>
+      buildTreatmentSchedule({
+        treatments,
+        illnesses,
+        members,
+        doseLogs,
+        memberFilterId: filterId,
+      }),
+    [treatments, illnesses, members, doseLogs, filterId]
+  );
 
-  const pastNodes = useMemo<PastNode[]>(() => {
-    if (!activeMember) return [];
-    const trMap = new Map(treatments.map((t) => [t.id, t]));
+  // Default Today and Tomorrow to expanded
+  const isDayExpanded = (dateKey: string, idx: number) => {
+    if (dateKey in expandedDays) return expandedDays[dateKey];
+    return idx <= 1;
+  };
 
-    const dNodes: PastNode[] = doseLogs
-      .filter((d) => d.member_id === activeMember.id)
-      .slice(0, 15)
-      .map((d) => {
-        const tr = trMap.get(d.treatment_item_id);
-        const title = tr
-          ? `${tr.brand_name}${tr.active_ingredients ? ` (${tr.active_ingredients})` : ''}`
-          : 'Tratamiento';
-        return {
-          kind: 'dose',
-          id: `d-${d.id}`,
-          time: d.administered_at,
-          title,
-          subtitle: `Administrada: ${d.dose_text}`,
-          by: d.administered_by_member_name,
-          notes: d.notes,
-        };
-      });
-
-    const sNodes: PastNode[] = symptomLogs
-      .filter((s) => s.member_id === activeMember.id)
-      .slice(0, 10)
-      .map((s) => ({
-        kind: 'symptom',
-        id: `s-${s.id}`,
-        time: s.recorded_at,
-        title:
-          s.temperature_celsius !== null
-            ? `Temperatura: ${s.temperature_celsius.toFixed(1)} °C`
-            : `Síntomas: ${s.symptoms.join(', ')}`,
-        color: getTemperatureColor(s.temperature_celsius),
-        by: s.recorded_by_name,
-        notes: s.notes,
-      }));
-
-    // Orden cronológico ascendente para leer de arriba (pasado) hacia AHORA
-    return [...dNodes, ...sNodes]
-      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-      .slice(-8);
-  }, [activeMember, treatments, doseLogs, symptomLogs]);
-
-  const upcomingTreatments = useMemo(() => {
-    return [...activeTreatments].sort((a, b) => {
-      if (a.frequency_type === 'prn' && b.frequency_type !== 'prn') return 1;
-      if (a.frequency_type !== 'prn' && b.frequency_type === 'prn') return -1;
-      const aMs = a.next_due_at ? new Date(a.next_due_at).getTime() : 0;
-      const bMs = b.next_due_at ? new Date(b.next_due_at).getTime() : 0;
-      return aMs - bMs;
-    });
-  }, [activeTreatments]);
-
-  const handleSelectMember = (memberId: string) => {
+  const toggleDay = (dateKey: string, idx: number) => {
     Haptics.selectionAsync().catch(() => {});
-    setSelectedMemberId(memberId);
+    setExpandedDays((prev) => ({
+      ...prev,
+      [dateKey]: !isDayExpanded(dateKey, idx),
+    }));
+  };
+
+  const handleExportPdf = async () => {
+    if (!fallbackMember || exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      await exportMemberPdf({
+        member: fallbackMember,
+        illnesses: illnesses.filter((i) => i.member_id === fallbackMember.id),
+        treatments: treatments.filter((t) => t.member_id === fallbackMember.id),
+        doseLogs: doseLogs.filter((d) => d.member_id === fallbackMember.id),
+        symptomLogs: symptomLogs.filter((s) => s.member_id === fallbackMember.id),
+      });
+    } catch (err) {
+      Alert.alert(
+        'Error al exportar',
+        err instanceof Error ? err.message : 'No se pudo generar el PDF.'
+      );
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const renderMemberSlotBox = (group: MemberSlotGroup, isWide: boolean, isUrgent = false) => {
+    const memberColor = group.member.accent_color || colors.primary;
+    const isAllApplied = group.pendingCount === 0 && group.appliedCount > 0;
+    const boxBg = isUrgent
+      ? colors.dangerSoft
+      : isAllApplied
+      ? `${memberColor}0A`
+      : `${memberColor}16`;
+    const borderColor = isUrgent ? colors.danger : memberColor;
+    const headerColor = isUrgent ? colors.dangerText : memberColor;
+
+    return (
+      <Pressable
+        key={`${group.member.id}-${group.slotKey}`}
+        onPress={() => {
+          Haptics.selectionAsync().catch(() => {});
+          setActiveSlotGroup(group);
+        }}
+        style={({ pressed }) => [
+          styles.slotBox,
+          isWide ? styles.slotBoxFull : styles.slotBoxShared,
+          {
+            backgroundColor: boxBg,
+            borderLeftColor: borderColor,
+          },
+          isAllApplied && styles.slotBoxApplied,
+          pressed && styles.pressed,
+        ]}
+      >
+        <View style={styles.slotBoxHeader}>
+          <View style={styles.slotMemberCluster}>
+            <View style={[styles.slotDot, { backgroundColor: borderColor }]} />
+            <Text style={[styles.slotMemberName, { color: headerColor }]} numberOfLines={1}>
+              {group.member.display_name}
+            </Text>
+          </View>
+          {isAllApplied ? (
+            <View style={styles.appliedBadge}>
+              <Ionicons name="checkmark-circle" size={13} color={colors.successText} />
+              <Text style={styles.appliedBadgeText}>Aplicada</Text>
+            </View>
+          ) : (
+            <View style={[styles.countBadge, { backgroundColor: borderColor }]}>
+              <Text style={styles.countBadgeText}>{group.doses.length}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.slotMedsList}>
+          {group.doses.map((dose) => {
+            const done = dose.status === 'applied';
+            return (
+              <View key={dose.id} style={styles.slotMedItem}>
+                <View style={styles.slotMedRow}>
+                  {done && (
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={14}
+                      color={colors.successText}
+                      style={{ marginRight: 2 }}
+                    />
+                  )}
+                  <Text
+                    style={[styles.slotMedBrand, done && styles.slotMedBrandDone]}
+                    numberOfLines={1}
+                  >
+                    {dose.treatment.brand_name}
+                  </Text>
+                  <Text style={styles.slotMedDose}>{dose.treatment.dose_text}</Text>
+                </View>
+                {dose.treatment.active_ingredients && (
+                  <Text style={styles.slotMedActive} numberOfLines={1}>
+                    {dose.treatment.active_ingredients}
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      </Pressable>
+    );
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      {isOffline && (
-        <StatusBanner
-          tone="danger"
-          icon="cloud-offline"
-          message="Sin conexión: viendo caché local. Conéctate para registrar tomas."
-          style={styles.bannerSpacing}
-        />
-      )}
-
-      {!isCaregiver && (
-        <StatusBanner
-          tone="info"
-          icon="eye-outline"
-          message="Modo Paciente (Solo visualización): solo los cuidadores pueden marcar dosis."
-          style={styles.bannerSpacing}
-        />
-      )}
-
-      {/* Selector horizontal de Miembros estilo Apple/Flo */}
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.memberRowContent}
-        style={styles.memberRow}
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
       >
-        {members.map((m) => {
-          const selected = m.id === activeMember?.id;
-          const activeColor = m.accent_color || colors.primary;
-          return (
-            <Pressable
-              key={m.id}
-              style={[
-                styles.memberPill,
-                selected && { backgroundColor: activeColor, borderColor: 'transparent' },
-              ]}
-              onPress={() => handleSelectMember(m.id)}
-            >
-              <Text style={[styles.memberPillText, selected && styles.memberPillTextSelected]}>
-                {m.display_name}
-              </Text>
-              <Text
-                style={[styles.memberRoleText, selected && styles.memberRoleTextSelected]}
+        {/* Cabecera */}
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={typography.largeTitle}>Tratamiento</Text>
+            <Text style={styles.familySub}>
+              {session?.family_name ?? 'Agenda de dosis'}
+            </Text>
+          </View>
+          <View style={styles.headerActions}>
+            {fallbackMember && (
+              <Pressable
+                style={styles.iconActionBtn}
+                onPress={handleExportPdf}
+                disabled={exportingPdf}
+                accessibilityLabel="Exportar PDF"
               >
-                {getRelationshipLabel(m.relationship)}
+                {exportingPdf ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Ionicons name="share-outline" size={20} color={colors.primary} />
+                )}
+              </Pressable>
+            )}
+            {isCaregiver && fallbackMember && (
+              <Pressable
+                style={styles.addBtn}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  router.push({
+                    pathname: '/modals/add-illness',
+                    params: { memberId: fallbackMember.id },
+                  });
+                }}
+              >
+                <Ionicons name="add" size={18} color={colors.textInverse} />
+                <Text style={styles.addBtnText}>Nuevo</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        {/* Filtro: Toda la familia o por integrante */}
+        {members.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterBleed}
+            contentContainerStyle={styles.filterContent}
+          >
+            <Pressable
+              style={[styles.filterChip, filterId === 'all' && styles.filterChipActive]}
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                setFilterId('all');
+              }}
+            >
+              <Ionicons
+                name="people"
+                size={14}
+                color={filterId === 'all' ? colors.textInverse : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.filterChipText,
+                  filterId === 'all' && styles.filterChipTextActive,
+                ]}
+              >
+                Toda la familia
               </Text>
             </Pressable>
-          );
-        })}
 
-        {isCaregiver && (
-          <Pressable
-            style={styles.addMemberPill}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-              router.push('/modals/add-member');
-            }}
-          >
-            <Ionicons name="add" size={18} color={colors.primary} />
-            <Text style={styles.addMemberText}>Miembro</Text>
-          </Pressable>
+            {members.map((m) => {
+              const active = filterId === m.id;
+              const accent = m.accent_color || colors.primary;
+              return (
+                <Pressable
+                  key={m.id}
+                  style={[
+                    styles.filterChip,
+                    active && { backgroundColor: accent, borderColor: accent },
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    setFilterId(m.id);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.filterDot,
+                      { backgroundColor: active ? colors.textInverse : accent },
+                    ]}
+                  />
+                  <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                    {m.display_name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {isOffline && (
+          <StatusBanner
+            tone="warning"
+            icon="cloud-offline"
+            message="Modo sin conexión: mostrando los últimos datos guardados."
+            style={styles.bannerSpacing}
+          />
+        )}
+
+        {selectedMember && selectedMember.allergies.length > 0 && (
+          <StatusBanner
+            tone="danger"
+            icon="alert-circle"
+            message={`Alergias de ${selectedMember.display_name}: ${selectedMember.allergies.join(', ')}`}
+            style={styles.bannerSpacing}
+          />
+        )}
+
+        {/* Bloque urgente: Atrasadas o 1ª toma pendiente */}
+        {schedule.overdueByMember.length > 0 && (
+          <View style={styles.section}>
+            <Pressable
+              style={styles.dayHeader}
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                setOverdueExpanded((v) => !v);
+              }}
+            >
+              <View style={styles.dayHeaderLeft}>
+                <Ionicons
+                  name={overdueExpanded ? 'chevron-down' : 'chevron-forward'}
+                  size={18}
+                  color={colors.dangerText}
+                />
+                <Text style={[styles.dayTitle, { color: colors.dangerText }]}>
+                  Pendientes ahora / Atrasadas
+                </Text>
+              </View>
+              <View style={[styles.dayBadge, { backgroundColor: colors.dangerSoft }]}>
+                <Text style={[styles.dayBadgeText, { color: colors.dangerText }]}>
+                  {schedule.overdueDoses.length}
+                </Text>
+              </View>
+            </Pressable>
+
+            {overdueExpanded && (
+              <View style={styles.overdueGrid}>
+                {schedule.overdueByMember.map((group) =>
+                  renderMemberSlotBox(group, schedule.overdueByMember.length === 1, true)
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Calendario vertical por días (expandibles/colapsables) */}
+        <View style={styles.section}>
+          {schedule.days.map((day, idx) => {
+            const expanded = isDayExpanded(day.dateKey, idx);
+            return (
+              <View key={day.dateKey} style={styles.dayBlock}>
+                <Pressable
+                  style={styles.dayHeader}
+                  onPress={() => toggleDay(day.dateKey, idx)}
+                >
+                  <View style={styles.dayHeaderLeft}>
+                    <Ionicons
+                      name={expanded ? 'chevron-down' : 'chevron-forward'}
+                      size={18}
+                      color={colors.textSecondary}
+                    />
+                    <Text style={styles.dayTitle}>{day.label}</Text>
+                  </View>
+                  <View style={styles.dayBadge}>
+                    <Text style={styles.dayBadgeText}>
+                      {day.totalDoses === 0
+                        ? 'Sin tomas'
+                        : day.appliedDoses > 0
+                        ? `${day.appliedDoses}/${day.totalDoses} aplicadas`
+                        : `${day.totalDoses} ${day.totalDoses === 1 ? 'toma' : 'tomas'}`}
+                    </Text>
+                  </View>
+                </Pressable>
+
+                {expanded && (
+                  <View style={styles.dayBody}>
+                    {day.slots.length === 0 ? (
+                      <Card style={styles.emptyDayCard}>
+                        <Ionicons name="checkmark-circle-outline" size={20} color={colors.success} />
+                        <Text style={styles.emptyDayText}>
+                          Sin dosis programadas para este día.
+                        </Text>
+                      </Card>
+                    ) : (
+                      day.slots.map((slot) => {
+                        const isOverlapping = slot.memberGroups.length > 1;
+                        return (
+                          <View key={slot.slotKey} style={styles.timeRow}>
+                            <View style={styles.timeCol}>
+                              <Text style={[styles.timeText, typography.tabularNums]}>
+                                {slot.slotKey}
+                              </Text>
+                            </View>
+                            {slot.memberGroups.length > 2 ? (
+                              <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.slotScrollContent}
+                                style={styles.slotScroll}
+                              >
+                                {slot.memberGroups.map((group) =>
+                                  renderMemberSlotBox(group, false)
+                                )}
+                              </ScrollView>
+                            ) : (
+                              <View
+                                style={[
+                                  styles.slotBoxesRow,
+                                  isOverlapping && styles.slotBoxesRowMulti,
+                                ]}
+                              >
+                                {slot.memberGroups.map((group) =>
+                                  renderMemberSlotBox(group, !isOverlapping)
+                                )}
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })
+                    )}
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+
+        {/* Sección Si requiere (PRN) */}
+        {schedule.prnItems.length > 0 && (
+          <View style={styles.section}>
+            <Pressable
+              style={styles.dayHeader}
+              onPress={() => {
+                Haptics.selectionAsync().catch(() => {});
+                setPrnExpanded((v) => !v);
+              }}
+            >
+              <View style={styles.dayHeaderLeft}>
+                <Ionicons
+                  name={prnExpanded ? 'chevron-down' : 'chevron-forward'}
+                  size={18}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.dayTitle}>Si requiere (PRN)</Text>
+              </View>
+              <View style={styles.dayBadge}>
+                <Text style={styles.dayBadgeText}>{schedule.prnItems.length}</Text>
+              </View>
+            </Pressable>
+
+            {prnExpanded && (
+              <View style={styles.prnList}>
+                {schedule.prnItems.map(({ treatment: tr, member }) => {
+                  const memberColor = member.accent_color || colors.primary;
+                  const countdown = tr.next_due_at ? formatMinutesDiff(tr.next_due_at) : null;
+                  const isSafe = !countdown || countdown.isOverdue;
+
+                  return (
+                    <Pressable
+                      key={tr.id}
+                      style={({ pressed }) => [styles.prnCard, pressed && styles.pressed]}
+                      onPress={() => {
+                        if (!isCaregiver) return;
+                        router.push({
+                          pathname: '/modals/apply-dose',
+                          params: { treatmentId: tr.id },
+                        });
+                      }}
+                    >
+                      <View style={[styles.prnAccent, { backgroundColor: memberColor }]} />
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.prnTopRow}>
+                          <Text style={[styles.prnMember, { color: memberColor }]}>
+                            {member.display_name}
+                          </Text>
+                          <View
+                            style={[
+                              styles.prnStatusPill,
+                              {
+                                backgroundColor: isSafe ? colors.successSoft : colors.warningSoft,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.prnStatusText,
+                                { color: isSafe ? colors.successText : colors.warningText },
+                              ]}
+                            >
+                              {isSafe
+                                ? 'Disponible'
+                                : `Esperar ${countdown!.label.replace('En ', '')}`}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.prnMed}>{tr.brand_name}</Text>
+                        {tr.active_ingredients && (
+                          <Text style={styles.prnActive}>{tr.active_ingredients}</Text>
+                        )}
+                        <Text style={styles.prnMeta}>
+                          {tr.dose_text} · {tr.frequency_label}
+                        </Text>
+                      </View>
+                      {isCaregiver && (
+                        <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </View>
         )}
       </ScrollView>
 
-      {activeMember && (
-        <>
-          {/* Encabezado Large Title */}
-          <View style={styles.heroHeader}>
-            <Text style={typography.largeTitle}>{activeMember.display_name}</Text>
-            <Text style={typography.subhead}>
-              {getRelationshipLabel(activeMember.relationship)} · Resumen de hoy
-            </Text>
-          </View>
-
-          {activeMember.allergies.length > 0 && (
-            <StatusBanner
-              tone="danger"
-              icon="alert-circle"
-              message={`Alergias: ${activeMember.allergies.join(', ')}`}
-              style={styles.bannerSpacing}
-            />
-          )}
-
-          {isCaregiver && (
-            <View style={styles.quickActions}>
-              <PillButton
-                label="Enfermedad"
-                icon="medkit-outline"
-                variant="tinted"
-                style={styles.quickActionBtn}
-                onPress={() =>
-                  router.push({
-                    pathname: '/modals/add-illness',
-                    params: { memberId: activeMember.id },
-                  })
-                }
-              />
-              <PillButton
-                label="Fiebre / Síntoma"
-                icon="thermometer-outline"
-                variant="warningTinted"
-                style={styles.quickActionBtn}
-                onPress={() =>
-                  router.push({
-                    pathname: '/modals/add-symptom',
-                    params: { memberId: activeMember.id },
-                  })
-                }
-              />
-            </View>
-          )}
-
-          {/* LÍNEA DEL TIEMPO VERTICAL */}
-          <Text style={styles.sectionTitle}>Línea del Tiempo</Text>
-
-          {pastNodes.length === 0 && upcomingTreatments.length === 0 ? (
-            <Card style={styles.emptyCard}>
-              <View style={styles.emptyIconCircle}>
-                <Ionicons name="medical-outline" size={28} color={colors.primary} />
-              </View>
-              <Text style={styles.emptyTitle}>Sin tratamientos activos</Text>
-              <Text style={styles.emptySub}>
-                {isCaregiver
-                  ? 'Registra una enfermedad y sus tratamientos para ver las próximas tomas aquí.'
-                  : 'No hay tratamientos activos registrados para este miembro.'}
-              </Text>
-            </Card>
-          ) : (
-            <View style={styles.timelineWrap}>
-              {/* NODOS PASADOS */}
-              {pastNodes.map((node) => (
-                <View key={node.id} style={styles.timelineRow}>
-                  <View style={styles.railCol}>
-                    <View
-                      style={[
-                        styles.dotPast,
-                        node.kind === 'symptom' && { backgroundColor: node.color },
-                      ]}
-                    />
-                    <View style={styles.railLine} />
-                  </View>
-                  <Card variant="muted" style={styles.pastCard}>
-                    <View style={styles.rowBetween}>
-                      <Text style={styles.pastTime}>{formatDateTimeShort(node.time)}</Text>
-                      <Text style={styles.pastBy}>por {node.by}</Text>
-                    </View>
-                    <Text
-                      style={[
-                        styles.pastTitle,
-                        node.kind === 'symptom' && { color: node.color },
-                      ]}
-                    >
-                      {node.title}
-                    </Text>
-                    {node.kind === 'dose' && (
-                      <Text style={styles.pastSub}>{node.subtitle}</Text>
-                    )}
-                    {node.notes && <Text style={styles.noteText}>Nota: {node.notes}</Text>}
-                  </Card>
-                </View>
-              ))}
-
-              {/* MARCADOR CENTRAL "AHORA" */}
-              <View style={styles.nowRow}>
-                <View style={styles.nowBadge}>
-                  <Text style={styles.nowText}>
-                    AHORA · {formatTimeShort(new Date().toISOString())}
-                  </Text>
-                </View>
-                <View style={styles.nowLine} />
-              </View>
-
-              {/* PRÓXIMAS APLICACIONES */}
-              {upcomingTreatments.map((tr) => {
-                const isPrn = tr.frequency_type === 'prn';
-                const countdown = tr.next_due_at
-                  ? formatMinutesDiff(tr.next_due_at)
-                  : {
-                      label: isPrn ? 'Disponible si requiere' : 'Pendiente 1ª toma',
-                      isOverdue: !isPrn,
-                    };
-
-                const isDue = !isPrn && countdown.isOverdue;
-                const isPrnSafe = isPrn && (!tr.next_due_at || countdown.isOverdue);
-
-                const statusLabel =
-                  isPrn && tr.next_due_at && !countdown.isOverdue
-                    ? `Esperar (${countdown.label.replace('En ', '')})`
-                    : isPrnSafe
-                    ? 'Disponible si hay síntoma'
-                    : `${countdown.label}${tr.next_due_at ? ` · ${formatTimeShort(tr.next_due_at)}` : ''}`;
-
-                return (
-                  <View key={tr.id} style={styles.timelineRow}>
-                    <View style={styles.railCol}>
-                      <View
-                        style={[
-                          styles.dotFuture,
-                          isDue && styles.dotUrgent,
-                          isPrnSafe && styles.dotSafe,
-                        ]}
-                      />
-                      <View style={styles.railLine} />
-                    </View>
-
-                    <Card variant={isDue ? 'urgent' : 'default'} style={styles.futureCard}>
-                      <View style={styles.rowBetween}>
-                        <View
-                          style={[
-                            styles.statusPill,
-                            isDue && styles.statusPillDanger,
-                            isPrnSafe && styles.statusPillSuccess,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.futureStatus,
-                              isDue && { color: colors.dangerText },
-                              isPrnSafe && { color: colors.successText },
-                            ]}
-                          >
-                            {statusLabel}
-                          </Text>
-                        </View>
-                        <Text style={styles.freqTag}>{tr.frequency_label}</Text>
-                      </View>
-
-                      <Text style={styles.medName}>{tr.brand_name}</Text>
-                      {tr.active_ingredients && (
-                        <Text style={styles.activeIng}>{tr.active_ingredients}</Text>
-                      )}
-                      <Text style={styles.doseLine}>Dosis: {tr.dose_text}</Text>
-                      {tr.notes && <Text style={styles.noteText}>ℹ {tr.notes}</Text>}
-
-                      {isCaregiver && (
-                        <PillButton
-                          label="Marcar Administrada"
-                          icon="checkmark-circle"
-                          variant={isDue ? 'danger' : 'primary'}
-                          style={styles.adminBtn}
-                          onPress={() =>
-                            router.push({
-                              pathname: '/modals/apply-dose',
-                              params: { treatmentId: tr.id },
-                            })
-                          }
-                        />
-                      )}
-                    </Card>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </>
-      )}
-    </ScrollView>
+      <SlotDoseModal
+        group={activeSlotGroup}
+        isCaregiver={isCaregiver}
+        onClose={() => setActiveSlotGroup(null)}
+        onOpenCustomApply={(treatmentId) =>
+          router.push({ pathname: '/modals/apply-dose', params: { treatmentId } })
+        }
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
     backgroundColor: colors.background,
   },
+  container: {
+    flex: 1,
+  },
   content: {
     padding: spacing.lg,
-    paddingBottom: spacing.xxl + spacing.md,
+    paddingBottom: spacing.xxl,
   },
-  bannerSpacing: {
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.md,
   },
-  memberRow: {
-    marginBottom: spacing.md,
+  familySub: {
+    ...typography.footnote,
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  iconActionBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.pill,
+  },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  addBtnText: {
+    color: colors.textInverse,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  filterBleed: {
     marginHorizontal: -spacing.lg,
+    marginBottom: spacing.sm,
   },
-  memberRowContent: {
+  filterContent: {
     paddingHorizontal: spacing.lg,
     gap: spacing.sm,
   },
-  memberPill: {
+  filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
     borderRadius: radius.pill,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadows.pill,
   },
-  memberPillText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  memberPillTextSelected: {
-    color: colors.textInverse,
-  },
-  memberRoleText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.textTertiary,
-  },
-  memberRoleTextSelected: {
-    color: 'rgba(255,255,255,0.85)',
-  },
-  addMemberPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primarySoft,
-  },
-  addMemberText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  heroHeader: {
-    marginBottom: spacing.md,
-    gap: 2,
-  },
-  quickActions: {
-    flexDirection: 'row',
-    gap: spacing.sm + 2,
-    marginBottom: spacing.xl,
-  },
-  quickActionBtn: {
-    flex: 1,
-  },
-  sectionTitle: {
-    ...typography.title,
-    marginBottom: spacing.md,
-  },
-  emptyCard: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-  },
-  emptyIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
-  },
-  emptyTitle: {
-    ...typography.headline,
-  },
-  emptySub: {
-    ...typography.subhead,
-    textAlign: 'center',
-    marginTop: spacing.xs,
-    lineHeight: 19,
-  },
-  timelineWrap: {
-    paddingLeft: 2,
-  },
-  timelineRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-  },
-  railCol: {
-    width: 22,
-    alignItems: 'center',
-  },
-  dotPast: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.success,
-    marginTop: 18,
-  },
-  dotFuture: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: colors.surface,
-    borderWidth: 3,
+  filterChipActive: {
+    backgroundColor: colors.primary,
     borderColor: colors.primary,
-    marginTop: 18,
   },
-  dotUrgent: {
-    borderColor: colors.danger,
-    backgroundColor: colors.dangerSoft,
+  filterDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
   },
-  dotSafe: {
-    borderColor: colors.success,
-    backgroundColor: colors.successSoft,
-  },
-  railLine: {
-    width: 2,
-    flex: 1,
-    backgroundColor: colors.border,
-    marginTop: 4,
-  },
-  pastCard: {
-    flex: 1,
-    padding: spacing.md,
-    marginBottom: spacing.sm + 2,
-    marginLeft: spacing.sm,
-  },
-  rowBetween: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  pastTime: {
-    ...typography.caption,
-    ...typography.tabularNums,
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
     color: colors.textSecondary,
   },
-  pastBy: {
-    ...typography.caption,
+  filterChipTextActive: {
+    color: colors.textInverse,
   },
-  pastTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginTop: 3,
+  bannerSpacing: {
+    marginTop: spacing.sm,
   },
-  pastSub: {
-    ...typography.subhead,
-    marginTop: 2,
+  section: {
+    marginTop: spacing.md,
   },
-  noteText: {
-    fontSize: 12,
-    color: colors.warningText,
-    marginTop: spacing.xs,
+  dayBlock: {
+    marginBottom: spacing.md,
   },
-  nowRow: {
+  dayHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: spacing.md,
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
   },
-  nowBadge: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 5,
+  dayHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+  },
+  dayTitle: {
+    ...typography.headline,
+    fontSize: 16,
+  },
+  dayBadge: {
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 3,
     borderRadius: radius.pill,
   },
-  nowText: {
-    color: colors.textInverse,
+  dayBadgeText: {
     fontSize: 11,
     fontWeight: '700',
-    ...typography.tabularNums,
+    color: colors.textSecondary,
   },
-  nowLine: {
-    flex: 1,
-    height: 1.5,
-    backgroundColor: colors.primary,
-    opacity: 0.35,
-    marginLeft: spacing.sm,
+  dayBody: {
+    marginTop: spacing.xs,
+    gap: spacing.sm + 2,
   },
-  futureCard: {
-    flex: 1,
-    marginBottom: spacing.md,
-    marginLeft: spacing.sm,
+  emptyDayCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
   },
-  statusPill: {
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
+  emptyDayText: {
+    ...typography.subhead,
+    color: colors.textTertiary,
   },
-  statusPillDanger: {
-    backgroundColor: colors.dangerSoft,
+  overdueGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
-  statusPillSuccess: {
-    backgroundColor: colors.successSoft,
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: spacing.sm,
   },
-  futureStatus: {
+  timeCol: {
+    width: 48,
+    paddingTop: spacing.sm + 2,
+    alignItems: 'flex-end',
+  },
+  timeText: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.primary,
-    ...typography.tabularNums,
+    color: colors.textSecondary,
   },
-  freqTag: {
-    ...typography.caption,
+  slotBoxesRow: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
-  medName: {
-    ...typography.title,
-    fontSize: 18,
-    marginTop: spacing.sm,
+  slotBoxesRowMulti: {
+    alignItems: 'stretch',
   },
-  activeIng: {
-    ...typography.subhead,
+  slotScroll: {
+    flex: 1,
+  },
+  slotScrollContent: {
+    gap: spacing.sm,
+  },
+  slotBox: {
+    borderRadius: radius.md,
+    borderLeftWidth: 4,
+    padding: spacing.sm + 2,
+  },
+  slotBoxApplied: {
+    opacity: 0.72,
+  },
+  slotBoxFull: {
+    flex: 1,
+  },
+  slotBoxShared: {
+    flex: 1,
+    minWidth: 132,
+  },
+  slotBoxHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  slotMemberCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+  },
+  slotDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  slotMemberName: {
+    fontSize: 12,
+    fontWeight: '700',
+    flex: 1,
+  },
+  countBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textInverse,
+  },
+  appliedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+  },
+  appliedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.successText,
+  },
+  slotMedsList: {
+    marginTop: 6,
+    gap: 5,
+  },
+  slotMedItem: {
+    gap: 1,
+  },
+  slotMedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+  },
+  slotMedBrand: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  slotMedBrandDone: {
+    color: colors.textSecondary,
+    textDecorationLine: 'line-through',
+  },
+  slotMedDose: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  slotMedActive: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  pressed: {
+    opacity: 0.8,
+  },
+  prnList: {
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  prnCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    ...shadows.card,
+  },
+  prnAccent: {
+    width: 4,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+  },
+  prnTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  prnMember: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  prnStatusPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+  },
+  prnStatusText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  prnMed: {
+    ...typography.headline,
+    fontSize: 16,
     marginTop: 2,
   },
-  doseLine: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginTop: spacing.sm,
+  prnActive: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    marginTop: 1,
   },
-  adminBtn: {
-    marginTop: spacing.md,
+  prnMeta: {
+    ...typography.footnote,
+    marginTop: 1,
   },
 });
