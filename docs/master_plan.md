@@ -3,7 +3,7 @@
 > **Documento vivo (Single Source of Truth):** Este archivo documenta la arquitectura, el modelo de datos, el alcance y las decisiones técnicas tomadas en **HL KiddoMed** hasta la fecha. Debe actualizarse en el mismo cambio cada vez que se tome una decisión arquitectónica, cambie el estado de una fase o se ajuste el alcance.
 
 * **Proyecto:** HL KiddoMed (`hl-kiddomed`)
-* **Versión actual:** `1.0.6`
+* **Versión actual:** `1.0.7`
 * **Repositorio:** [Hurtz27/KiddoMed](https://github.com/Hurtz27/KiddoMed)
 * **Última actualización:** 2026-11-18
 
@@ -109,3 +109,4 @@ La estructura en Cloud Firestore se organiza bajo un árbol multi-tenant por fam
 | 2026-11-16 | Actualización de `docs/master_plan.md` y creación de ADR `0005` documentando soporte multi-familia, CRUD completo con borrado en cascada, reversión de dosis, agenda de 7 días, pestaña `Notas`, `firestore.rules` en raíz y configuración EAS (`app.json`/`eas.json`). | Usuario + Asistente |
 | 2026-11-18 | Release `v1.0.5`: helper multiplataforma `showAlert` (`src/utils/alert.ts`), alarmas exactas Android (`SCHEDULE_EXACT_ALARM`, `alarmClock` y diagnóstico en Ajustes), ajuste de safe-area en barra de pestañas y actualización de `firebase.json`. | Usuario + Asistente |
 | 2026-11-18 | Release `v1.0.6`: Firestore `experimentalForceLongPolling` en nativo, `authStateReady` y deduplicación en `ensureAnonymousAuth`, `ConnectionBanner` con `syncStatus`/`retrySync`, fuentes en `public/fonts/` y ajuste de layout en franjas de agenda. | Usuario + Asistente |
+| 2026-11-18 | Release `v1.0.7`: hidratación directa `getDocsFromServer` en `KiddoMedContext` (evita bloqueos de proxies 5G), reinicio de red Firestore (`disableNetwork`/`enableNetwork`) en `retrySync` y timeout de 8s en `ensureAnonymousAuth`. | Usuario + Asistente |

@@ -3,7 +3,7 @@
     "name": "HL KiddoMed",
     "slug": "hl-kiddomed",
     "scheme": "kiddomed",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "platforms": [
       "ios",
       "android",

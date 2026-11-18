@@ -45,11 +45,15 @@ export async function ensureAnonymousAuth(): Promise<string> {
     return auth.currentUser.uid;
   }
   if (!pendingAuthPromise) {
-    pendingAuthPromise = signInAnonymously(auth)
-      .then((cred) => cred.user.uid)
-      .finally(() => {
-        pendingAuthPromise = null;
-      });
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('auth/network-request-failed')), 8000);
+    });
+    pendingAuthPromise = Promise.race([
+      signInAnonymously(auth).then((cred) => cred.user.uid),
+      timeoutPromise,
+    ]).finally(() => {
+      pendingAuthPromise = null;
+    });
   }
   return pendingAuthPromise;
 }

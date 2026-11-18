@@ -1,4 +1,12 @@
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import {
+  collection,
+  disableNetwork,
+  enableNetwork,
+  getDocsFromServer,
+  onSnapshot,
+  orderBy,
+  query,
+} from 'firebase/firestore';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AppState } from 'react-native';
 import { db, isFirebaseConfigured } from '../lib/firebase';
@@ -98,6 +106,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
 
   const retrySync = useCallback(() => {
     setSyncStatus('connecting');
+    setSyncError('Reconectando con el servidor...');
     setSyncTick((t) => t + 1);
   }, []);
 
@@ -234,17 +243,31 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
     let unsubs: (() => void)[] = [];
     let cancelled = false;
     let serverConfirmed = false;
+    let stage: 'auth' | 'firestore' = 'auth';
 
     const connectTimer = setTimeout(() => {
       if (!cancelled && !serverConfirmed) {
         setIsOffline(true);
         setSyncStatus('reconnecting');
-        setSyncError('No hay conexión o la red está lenta. Esperando reconexión...');
+        setSyncError(
+          stage === 'auth'
+            ? 'Sin respuesta al autenticar con Firebase. Esperando reconexión...'
+            : 'No hay conexión o Firestore no responde. Esperando reconexión...'
+        );
       }
     }, 6000);
 
+    const markOnline = () => {
+      serverConfirmed = true;
+      clearTimeout(connectTimer);
+      setIsOffline(false);
+      setSyncStatus('online');
+      setSyncError(null);
+    };
+
     const handleSnapshotError = (err: Error) => {
       if (cancelled) return;
+      clearTimeout(connectTimer);
       const formatted = formatSyncError(err);
       setIsOffline(true);
       setSyncStatus(formatted.status);
@@ -253,13 +276,27 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
 
     async function subscribe() {
       try {
+        if (syncTick > 0) {
+          // Forzar reinicio del transporte de Firestore al cambiar de red (ej. datos -> Wi-Fi)
+          await disableNetwork(db).catch(() => {});
+          await enableNetwork(db).catch(() => {});
+          if (cancelled) return;
+        }
+
         await ensureAnonymousAuth();
         if (cancelled) return;
 
+        stage = 'firestore';
         const base = `families/${currentFamilyId}`;
 
+        const qMembers = query(collection(db, `${base}/members`), orderBy('created_at', 'asc'));
+        const qIllnesses = query(collection(db, `${base}/illnesses`), orderBy('diagnosed_at', 'desc'));
+        const qTreatments = query(collection(db, `${base}/treatments`), orderBy('created_at', 'desc'));
+        const qDoses = query(collection(db, `${base}/dose_logs`), orderBy('administered_at', 'desc'));
+        const qSymptoms = query(collection(db, `${base}/symptom_logs`), orderBy('recorded_at', 'desc'));
+
         const unsubMembers = onSnapshot(
-          query(collection(db, `${base}/members`), orderBy('created_at', 'asc')),
+          qMembers,
           { includeMetadataChanges: true },
           (snap) => {
             if (!(snap.metadata.fromCache && snap.empty)) {
@@ -271,11 +308,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
             }
 
             if (!snap.metadata.fromCache) {
-              serverConfirmed = true;
-              clearTimeout(connectTimer);
-              setIsOffline(false);
-              setSyncStatus('online');
-              setSyncError(null);
+              markOnline();
             } else if (serverConfirmed) {
               setIsOffline(true);
               setSyncStatus('reconnecting');
@@ -286,7 +319,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
         );
 
         const unsubIllnesses = onSnapshot(
-          query(collection(db, `${base}/illnesses`), orderBy('diagnosed_at', 'desc')),
+          qIllnesses,
           (snap) => {
             if (snap.metadata.fromCache && snap.empty) return;
             setIllnesses(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Illness));
@@ -295,7 +328,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
         );
 
         const unsubTreatments = onSnapshot(
-          query(collection(db, `${base}/treatments`), orderBy('created_at', 'desc')),
+          qTreatments,
           (snap) => {
             if (snap.metadata.fromCache && snap.empty) return;
             setTreatments(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as TreatmentItem));
@@ -304,7 +337,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
         );
 
         const unsubDoses = onSnapshot(
-          query(collection(db, `${base}/dose_logs`), orderBy('administered_at', 'desc')),
+          qDoses,
           (snap) => {
             if (snap.metadata.fromCache && snap.empty) return;
             setDoseLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as DoseLog));
@@ -313,7 +346,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
         );
 
         const unsubSymptoms = onSnapshot(
-          query(collection(db, `${base}/symptom_logs`), orderBy('recorded_at', 'desc')),
+          qSymptoms,
           (snap) => {
             if (snap.metadata.fromCache && snap.empty) return;
             setSymptomLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as SymptomLog));
@@ -322,8 +355,32 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
         );
 
         unsubs = [unsubMembers, unsubIllnesses, unsubTreatments, unsubDoses, unsubSymptoms];
+
+        // Consulta directa al servidor por HTTP corto: evita bloqueos de proxies 5G sobre streams largos
+        const [membersSnap, illnessesSnap, treatmentsSnap, dosesSnap, symptomsSnap] =
+          await Promise.all([
+            getDocsFromServer(qMembers),
+            getDocsFromServer(qIllnesses),
+            getDocsFromServer(qTreatments),
+            getDocsFromServer(qDoses),
+            getDocsFromServer(qSymptoms),
+          ]);
+
+        if (cancelled) return;
+
+        const memberList = membersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as FamilyMember);
+        setMembers(memberList);
+        setSelectedMemberId((prev) =>
+          prev && memberList.some((m) => m.id === prev) ? prev : memberList[0]?.id ?? null
+        );
+        setIllnesses(illnessesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Illness));
+        setTreatments(treatmentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as TreatmentItem));
+        setDoseLogs(dosesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as DoseLog));
+        setSymptomLogs(symptomsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as SymptomLog));
+        markOnline();
       } catch (err) {
         if (!cancelled) {
+          clearTimeout(connectTimer);
           const formatted = formatSyncError(err);
           setIsOffline(true);
           setSyncStatus(formatted.status);
