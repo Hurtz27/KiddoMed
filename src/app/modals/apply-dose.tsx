@@ -3,7 +3,6 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Alert,
   Modal,
   Platform,
   Pressable,
@@ -21,6 +20,7 @@ import { useKiddoMed } from '../../context/KiddoMedContext';
 import { registerDoseTransaction } from '../../services/kiddomed';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { RegisterDoseResult } from '../../types/database';
+import { showAlert } from '../../utils/alert';
 import { formatDateTimeShort } from '../../utils/formatting';
 
 const TIME_PRESETS: ChipOption<string>[] = [
@@ -103,7 +103,7 @@ export default function ApplyDoseModal() {
       setEarlyWarning(null);
       router.back();
     } catch (err) {
-      Alert.alert(
+      showAlert(
         'Sin conexión o error',
         'No se pudo confirmar la aplicación en el servidor.\n\n' +
           (err instanceof Error ? err.message : '')

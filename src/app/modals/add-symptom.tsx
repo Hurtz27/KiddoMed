@@ -1,7 +1,6 @@
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,6 +18,7 @@ import {
   updateSymptomLogRecord,
 } from '../../services/kiddomed';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
+import { showAlert } from '../../utils/alert';
 import { getTemperatureColor } from '../../utils/formatting';
 
 const COMMON_SYMPTOMS: ChipOption<string>[] = [
@@ -71,11 +71,11 @@ export default function AddSymptomModal() {
   async function handleSave() {
     if (!session) return;
     if (!tempValid) {
-      Alert.alert('Temperatura inválida', 'Ingresa una temperatura válida entre 34.0 y 43.0 °C.');
+      showAlert('Temperatura inválida', 'Ingresa una temperatura válida entre 34.0 y 43.0 °C.');
       return;
     }
     if (parsedTemp === null && selectedSymptoms.length === 0 && !notes.trim()) {
-      Alert.alert('Sin datos', 'Ingresa la temperatura, un síntoma o una nota.');
+      showAlert('Sin datos', 'Ingresa la temperatura, un síntoma o una nota.');
       return;
     }
 
@@ -103,7 +103,7 @@ export default function AddSymptomModal() {
       }
       router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo guardar.');
+      showAlert('Error', err instanceof Error ? err.message : 'No se pudo guardar.');
     } finally {
       setSaving(false);
     }
@@ -111,7 +111,7 @@ export default function AddSymptomModal() {
 
   function handleDelete() {
     if (!session || !existing) return;
-    Alert.alert(
+    showAlert(
       'Eliminar registro',
       '¿Seguro que deseas eliminar esta nota/síntoma?',
       [
@@ -128,7 +128,7 @@ export default function AddSymptomModal() {
               });
               router.back();
             } catch (err) {
-              Alert.alert(
+              showAlert(
                 'Error',
                 err instanceof Error ? err.message : 'No se pudo eliminar el registro.'
               );

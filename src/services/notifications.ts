@@ -1,11 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import {
+  AndroidImportance,
+  AndroidNotificationVisibility,
+} from 'expo-notifications';
 import { Platform } from 'react-native';
 import { FamilyMember, TreatmentItem } from '../types/database';
 import { formatTimeShort } from '../utils/formatting';
 
-const NOTIFICATION_MAP_KEY = 'kiddomed_notification_records_v2';
+const NOTIFICATION_MAP_KEY = 'kiddomed_notification_records_v3';
 const NOTIFICATION_PREFS_KEY = 'kiddomed_notification_prefs_v1';
+const ANDROID_CHANNEL_ID = 'medications_alarm_v2';
 
 interface ScheduledRecord {
   notifId: string;
@@ -62,18 +67,60 @@ export async function saveNotificationPrefs(prefs: NotificationPrefs): Promise<v
   await AsyncStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(prefs));
 }
 
+async function ensureAndroidChannel(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+    name: 'Alertas de Medicamentos',
+    importance: AndroidImportance.MAX,
+    vibrationPattern: [0, 350, 250, 350],
+    lightColor: '#DC2626',
+    lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
+    enableVibrate: true,
+    showBadge: true,
+    sound: 'default',
+  }).catch(() => {});
+}
+
+export interface AndroidNotificationDiagnostics {
+  notificationsGranted: boolean;
+  exactAlarmGranted: boolean;
+  canAskExactAlarm: boolean;
+}
+
+export async function getAndroidNotificationDiagnostics(): Promise<AndroidNotificationDiagnostics> {
+  if (Platform.OS !== 'android') {
+    return { notificationsGranted: true, exactAlarmGranted: true, canAskExactAlarm: false };
+  }
+  try {
+    const [notifPerms, exactPerms] = await Promise.all([
+      Notifications.getPermissionsAsync(),
+      Notifications.getExactAlarmPermissionsAsync(),
+    ]);
+    return {
+      notificationsGranted: notifPerms.granted,
+      exactAlarmGranted: exactPerms.granted,
+      canAskExactAlarm: exactPerms.canAskAgain,
+    };
+  } catch {
+    return { notificationsGranted: true, exactAlarmGranted: false, canAskExactAlarm: false };
+  }
+}
+
+export async function requestAndroidExactAlarmPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  try {
+    const res = await Notifications.requestExactAlarmPermissionsAsync();
+    return res.granted;
+  } catch {
+    return false;
+  }
+}
+
 export async function initializeNotifications(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
 
   try {
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('medications_high', {
-        name: 'Alertas de Medicamentos',
-        importance: 5,
-        vibrationPattern: [0, 350, 250, 350],
-        lightColor: '#DC2626',
-      }).catch(() => {});
-    }
+    await ensureAndroidChannel();
 
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
@@ -131,6 +178,8 @@ export function syncPrescriptionReminders(params: {
       await saveNotificationMap({});
       return;
     }
+
+    await ensureAndroidChannel();
 
     const mutedSet = new Set(mutedMemberIds);
     const memberMap = new Map(members.map((m) => [m.id, m.display_name]));
@@ -220,11 +269,18 @@ export function syncPrescriptionReminders(params: {
             title: entry.title,
             body: entry.body,
             sound: true,
+            priority: Notifications.AndroidNotificationPriority.MAX,
             data: { prescriptionId: rxId },
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DATE,
             date: entry.triggerDate,
+            ...(Platform.OS === 'android'
+              ? {
+                  channelId: ANDROID_CHANNEL_ID,
+                  delivery: 'alarmClock' as const,
+                }
+              : {}),
           },
         });
 

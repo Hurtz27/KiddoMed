@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   StyleSheet,
@@ -19,6 +18,7 @@ import {
 } from '../services/kiddomed';
 import { colors, radius, spacing, typography } from '../theme/tokens';
 import { Illness, IllnessStatus } from '../types/database';
+import { showAlert } from '../utils/alert';
 import { CrossPlatformDateTimePicker } from './ui/CrossPlatformDateTimePicker';
 import { PillButton } from './ui/PillButton';
 
@@ -59,7 +59,7 @@ export function IllnessForm({
   async function handleSave(addTreatmentAfter: boolean) {
     if (!session || readOnly) return;
     if (!diagnosis.trim() || !doctorName.trim()) {
-      Alert.alert('Campos requeridos', 'Ingresa el diagnóstico y el médico tratante.');
+      showAlert('Campos requeridos', 'Ingresa el diagnóstico y el médico tratante.');
       return;
     }
 
@@ -81,7 +81,7 @@ export function IllnessForm({
             status,
           });
         }
-        Alert.alert('Guardado', 'Los detalles del diagnóstico se actualizaron correctamente.');
+        showAlert('Guardado', 'Los detalles del diagnóstico se actualizaron correctamente.');
         onSaved?.({ illnessId: existing.id, addTreatmentAfter: false });
         return;
       }
@@ -98,7 +98,7 @@ export function IllnessForm({
       });
       onSaved?.({ illnessId: newIllnessId, addTreatmentAfter });
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo guardar.');
+      showAlert('Error', err instanceof Error ? err.message : 'No se pudo guardar.');
     } finally {
       setSaving(false);
     }
@@ -106,7 +106,7 @@ export function IllnessForm({
 
   function handleDeletePress() {
     if (!session || !existing || readOnly) return;
-    Alert.alert(
+    showAlert(
       'Eliminar enfermedad',
       `¿Seguro que deseas eliminar "${existing.diagnosis}"? También se eliminarán sus tratamientos y registros de dosis asociados.`,
       [
@@ -123,7 +123,7 @@ export function IllnessForm({
               });
               onDeleted?.();
             } catch (err) {
-              Alert.alert(
+              showAlert(
                 'Error',
                 err instanceof Error ? err.message : 'No se pudo eliminar la enfermedad.'
               );

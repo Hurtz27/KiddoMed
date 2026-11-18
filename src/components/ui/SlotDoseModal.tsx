@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useState } from 'react';
 import {
-  Alert,
   Modal,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import { useKiddoMed } from '../../context/KiddoMedContext';
 import { registerDoseTransaction, revertDoseLogTransaction } from '../../services/kiddomed';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { RegisterDoseResult } from '../../types/database';
+import { showAlert } from '../../utils/alert';
 import { formatDateTimeShort, formatTimeShort } from '../../utils/formatting';
 import { MemberSlotGroup, ProjectedDose } from '../../utils/schedule';
 import { PillButton } from './PillButton';
@@ -107,7 +107,7 @@ export function SlotDoseModal({
       const nextInfo = res.next_due_at
         ? `\nPróxima toma: ${formatDateTimeShort(res.next_due_at)}`
         : '';
-      Alert.alert(
+      showAlert(
         '✓ Dosis aplicada',
         `Se registró ${dose.treatment.brand_name} (${dose.treatment.dose_text}) para ${group!.member.display_name}.${nextInfo}`
       );
@@ -116,7 +116,7 @@ export function SlotDoseModal({
         handleClose();
       }
     } catch (err) {
-      Alert.alert(
+      showAlert(
         'Error al registrar',
         err instanceof Error ? err.message : 'No se pudo registrar la dosis.'
       );
@@ -132,7 +132,7 @@ export function SlotDoseModal({
       return;
     }
     const nowTime = formatTimeShort(new Date().toISOString());
-    Alert.alert(
+    showAlert(
       'Confirmar dosis',
       `¿Seguro que quieres aplicar ${dose.treatment.brand_name} (${dose.treatment.dose_text}) a ${group!.member.display_name} a las ${nowTime}?`,
       [
@@ -149,7 +149,7 @@ export function SlotDoseModal({
 
   function handleRevertPress(dose: ProjectedDose) {
     if (!session || !dose.doseLogId) return;
-    Alert.alert(
+    showAlert(
       '¿Marcar como error?',
       `Se revertirá la toma de ${dose.treatment.brand_name} (${formatTimeShort(dose.dueAtIso)}) para que vuelva a estar pendiente y se recalcule el horario.`,
       [
@@ -167,13 +167,13 @@ export function SlotDoseModal({
               if (Platform.OS !== 'web') {
                 await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               }
-              Alert.alert(
+              showAlert(
                 'Dosis revertida',
                 `${dose.treatment.brand_name} volvió a estado pendiente.`
               );
               handleClose();
             } catch (err) {
-              Alert.alert(
+              showAlert(
                 'Error al revertir',
                 err instanceof Error ? err.message : 'No se pudo deshacer la dosis.'
               );

@@ -2,7 +2,6 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -19,6 +18,7 @@ import {
 } from '../../services/kiddomed';
 import { colors, radius, spacing } from '../../theme/tokens';
 import { FrequencyType, TreatmentItemType, TreatmentStatus } from '../../types/database';
+import { showAlert } from '../../utils/alert';
 import { calculateEndDateIso, formatDateOnly } from '../../utils/formatting';
 
 export default function AddOrEditTreatmentModal() {
@@ -96,7 +96,7 @@ export default function AddOrEditTreatmentModal() {
   async function handleSave() {
     if (!session) return;
     if (!brandName.trim() || !doseText.trim()) {
-      Alert.alert('Campos requeridos', 'Ingresa el nombre y la dosis o indicación.');
+      showAlert('Campos requeridos', 'Ingresa el nombre y la dosis o indicación.');
       return;
     }
 
@@ -105,7 +105,7 @@ export default function AddOrEditTreatmentModal() {
     const safetyNum = Number(minSafetyHours.replace(',', '.'));
 
     if (frequencyType !== 'prn' && (Number.isNaN(freqNum) || freqNum <= 0)) {
-      Alert.alert('Frecuencia inválida', 'Ingresa un número válido de horas o días.');
+      showAlert('Frecuencia inválida', 'Ingresa un número válido de horas o días.');
       return;
     }
 
@@ -156,7 +156,7 @@ export default function AddOrEditTreatmentModal() {
       }
       router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo guardar.');
+      showAlert('Error', err instanceof Error ? err.message : 'No se pudo guardar.');
     } finally {
       setSaving(false);
     }

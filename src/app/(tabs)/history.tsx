@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +18,7 @@ import { toDateKey } from '../../components/ui/WeekStrip';
 import { useKiddoMed } from '../../context/KiddoMedContext';
 import { exportMemberPdf } from '../../services/exportPdf';
 import { colors, radius, shadows, spacing, typography } from '../../theme/tokens';
+import { showAlert } from '../../utils/alert';
 import { formatDateOnly, formatTimeShort, getTemperatureColor } from '../../utils/formatting';
 
 type FilterKind = 'all' | 'dose' | 'symptom';
@@ -149,7 +149,7 @@ export default function HistoryAndSearchScreen() {
         symptomLogs: symptomLogs.filter((s) => s.member_id === activeMember.id),
       });
     } catch (err) {
-      Alert.alert(
+      showAlert(
         'Error al exportar',
         err instanceof Error ? err.message : 'No se pudo generar el PDF.'
       );

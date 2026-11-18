@@ -3,7 +3,7 @@
     "name": "HL KiddoMed",
     "slug": "hl-kiddomed",
     "scheme": "kiddomed",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "platforms": [
       "ios",
       "android",
@@ -33,6 +33,11 @@
     },
     "android": {
       "package": "com.hurtado.kiddomed",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#DAF4EB",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -3,7 +3,6 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -17,6 +16,7 @@ import { useKiddoMed } from '../../context/KiddoMedContext';
 import { createFamilyMember, updateFamilyMember } from '../../services/kiddomed';
 import { colors, getFirstAvailableMemberColor, MEMBER_COLOR_PALETTE } from '../../theme/tokens';
 import { RelationshipType } from '../../types/database';
+import { showAlert } from '../../utils/alert';
 
 const RELATIONSHIPS: { label: string; value: RelationshipType }[] = [
   { label: 'Hijo', value: 'hijo' },
@@ -79,19 +79,19 @@ export default function AddOrEditMemberModal() {
   async function handleSave() {
     if (!session) return;
     if (!displayName.trim()) {
-      Alert.alert('Nombre requerido', 'Ingresa el nombre del miembro.');
+      showAlert('Nombre requerido', 'Ingresa el nombre del miembro.');
       return;
     }
 
     const parsedWeight = weight.trim() ? Number(weight.replace(',', '.')) : null;
     if (weight.trim() && (Number.isNaN(parsedWeight) || (parsedWeight ?? 0) <= 0)) {
-      Alert.alert('Peso inválido', 'Ingresa un peso válido en kg.');
+      showAlert('Peso inválido', 'Ingresa un peso válido en kg.');
       return;
     }
 
     const colorOwner = usedColorOwners.get(color.toUpperCase());
     if (colorOwner) {
-      Alert.alert(
+      showAlert(
         'Color en uso',
         `El color seleccionado ya lo usa ${colorOwner}. Elige otro color para que no se repitan.`
       );
@@ -130,7 +130,7 @@ export default function AddOrEditMemberModal() {
       }
       router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo guardar el miembro.');
+      showAlert('Error', err instanceof Error ? err.message : 'No se pudo guardar el miembro.');
     } finally {
       setSaving(false);
     }

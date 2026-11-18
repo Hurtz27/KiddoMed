@@ -3,9 +3,9 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Alert,
   LayoutAnimation,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -21,6 +21,7 @@ import { useKiddoMed } from '../../context/KiddoMedContext';
 import { deleteFamilyMember, generateMemberInviteCode } from '../../services/kiddomed';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { AccessRole, FamilyMember } from '../../types/database';
+import { showAlert } from '../../utils/alert';
 import {
   calculateAgeLabel,
   formatDateOnly,
@@ -46,14 +47,14 @@ export default function MembersScreen() {
   function handleDeleteMember(member: FamilyMember) {
     if (!session) return;
     if (member.id === session.member_id) {
-      Alert.alert(
+      showAlert(
         'Acción no permitida',
         'No puedes eliminar el perfil del miembro con el que iniciaste sesión.'
       );
       return;
     }
 
-    Alert.alert(
+    showAlert(
       'Eliminar miembro',
       `¿Seguro que deseas eliminar a "${member.display_name}"? También se eliminarán sus enfermedades, tratamientos, dosis y síntomas registrados.`,
       [
@@ -69,7 +70,7 @@ export default function MembersScreen() {
                 inviteCode: member.invite_code,
               });
             } catch (err) {
-              Alert.alert(
+              showAlert(
                 'Error',
                 err instanceof Error ? err.message : 'No se pudo eliminar al miembro.'
               );
@@ -92,13 +93,31 @@ export default function MembersScreen() {
         role: inviteRole,
       });
       setInviteTarget(null);
-      await Share.share({
-        message: `Hola ${inviteTarget.display_name}, únete a ${session.family_name} en HL KiddoMed como ${
-          inviteRole === 'caregiver' ? 'Cuidador (Admin)' : 'Paciente (Solo lectura)'
-        } con el código: ${code}`,
-      });
+      const message = `Hola ${inviteTarget.display_name}, únete a ${session.family_name} en HL KiddoMed como ${
+        inviteRole === 'caregiver' ? 'Cuidador (Admin)' : 'Paciente (Solo lectura)'
+      } con el código: ${code}`;
+
+      if (Platform.OS === 'web') {
+        const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+        if (nav?.share) {
+          try {
+            await nav.share({ text: message });
+            return;
+          } catch {
+            // User cancelled or share failed; fall through to clipboard/alert
+          }
+        }
+        try {
+          await nav?.clipboard?.writeText(code);
+          showAlert('Código de invitación copiado', `${message}\n\n(El código ${code} se copió al portapapeles)`);
+        } catch {
+          showAlert('Código de invitación', message);
+        }
+      } else {
+        await Share.share({ message });
+      }
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo generar el código.');
+      showAlert('Error', err instanceof Error ? err.message : 'No se pudo generar el código.');
     } finally {
       setGenerating(false);
     }

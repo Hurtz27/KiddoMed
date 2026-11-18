@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '../../components/ui/Card';
 import { toDateKey, WeekStrip } from '../../components/ui/WeekStrip';
@@ -10,6 +10,7 @@ import { useKiddoMed } from '../../context/KiddoMedContext';
 import { deleteSymptomLogRecord } from '../../services/kiddomed';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { SymptomLog } from '../../types/database';
+import { showAlert } from '../../utils/alert';
 import { formatTimeShort, getTemperatureColor } from '../../utils/formatting';
 
 export default function NotesScreen() {
@@ -22,7 +23,7 @@ export default function NotesScreen() {
 
   function handleDeleteLog(log: SymptomLog) {
     if (!session) return;
-    Alert.alert(
+    showAlert(
       'Eliminar registro',
       '¿Seguro que deseas eliminar esta nota/síntoma?',
       [
@@ -37,7 +38,7 @@ export default function NotesScreen() {
                 symptomLogId: log.id,
               });
             } catch (err) {
-              Alert.alert(
+              showAlert(
                 'Error',
                 err instanceof Error ? err.message : 'No se pudo eliminar el registro.'
               );

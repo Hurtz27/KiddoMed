@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   AppState,
   Image,
   Pressable,
@@ -21,6 +20,7 @@ import { StatusBanner } from '../../components/ui/StatusBanner';
 import { useKiddoMed } from '../../context/KiddoMedContext';
 import { exportMemberPdf } from '../../services/exportPdf';
 import { colors, radius, shadows, spacing, typography } from '../../theme/tokens';
+import { showAlert } from '../../utils/alert';
 import { formatMinutesDiff } from '../../utils/formatting';
 import { buildTreatmentSchedule, MemberSlotGroup } from '../../utils/schedule';
 
@@ -119,7 +119,7 @@ export default function TreatmentScheduleScreen() {
         symptomLogs: symptomLogs.filter((s) => s.member_id === fallbackMember.id),
       });
     } catch (err) {
-      Alert.alert(
+      showAlert(
         'Error al exportar',
         err instanceof Error ? err.message : 'No se pudo generar el PDF.'
       );

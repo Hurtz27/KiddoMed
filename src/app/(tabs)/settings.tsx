@@ -3,15 +3,33 @@ import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import * as Updates from 'expo-updates';
-import React, { useState } from 'react';
-import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  AppState,
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '../../components/ui/Card';
 import { GroupedListRow } from '../../components/ui/GroupedListRow';
 import { PillButton } from '../../components/ui/PillButton';
 import { useKiddoMed } from '../../context/KiddoMedContext';
+import {
+  AndroidNotificationDiagnostics,
+  getAndroidNotificationDiagnostics,
+  initializeNotifications,
+  requestAndroidExactAlarmPermission,
+} from '../../services/notifications';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
 import { FamilySession } from '../../types/database';
+import { showAlert } from '../../utils/alert';
 import { formatDateTimeShort } from '../../utils/formatting';
 
 const ADVANCE_MINUTES_OPTIONS = [0, 5, 10, 15, 20, 25, 30] as const;
@@ -35,6 +53,30 @@ export default function SettingsScreen() {
   } = useKiddoMed();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
+  const [androidDiag, setAndroidDiag] = useState<AndroidNotificationDiagnostics | null>(null);
+
+  const refreshAndroidDiagnostics = useCallback(async () => {
+    if (Platform.OS !== 'android') return;
+    const diag = await getAndroidNotificationDiagnostics();
+    setAndroidDiag(diag);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let mounted = true;
+    void getAndroidNotificationDiagnostics().then((diag) => {
+      if (mounted) setAndroidDiag(diag);
+    });
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void refreshAndroidDiagnostics();
+      }
+    });
+    return () => {
+      mounted = false;
+      sub.remove();
+    };
+  }, [refreshAndroidDiagnostics, notificationsEnabled]);
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
   const shortUpdateId = Updates.updateId ? Updates.updateId.slice(0, 8) : null;
@@ -64,7 +106,7 @@ export default function SettingsScreen() {
       const fetchResult = await Updates.fetchUpdateAsync();
       if (fetchResult.isNew) {
         setUpdateStatusMsg('Nueva versión lista. Reinicia para aplicar.');
-        Alert.alert(
+        showAlert(
           'Actualización lista',
           'Se descargó una nueva versión. ¿Deseas reiniciar la app para aplicarla?',
           [
@@ -103,7 +145,7 @@ export default function SettingsScreen() {
 
   function handleLeaveFamily(target: FamilySession) {
     const isLast = families.length <= 1;
-    Alert.alert(
+    showAlert(
       `Salir de ${target.family_name}`,
       isLast
         ? 'Es tu única familia vinculada. Si sales, volverás a la pantalla de inicio.'
@@ -279,6 +321,60 @@ export default function SettingsScreen() {
 
           {notificationsEnabled && (
             <>
+              {Platform.OS === 'android' && androidDiag && !androidDiag.notificationsGranted && (
+                <>
+                  <View style={styles.switchSectionDivider} />
+                  <Pressable
+                    style={styles.diagBanner}
+                    onPress={async () => {
+                      const ok = await initializeNotifications();
+                      if (!ok) {
+                        await Linking.openSettings().catch(() => {});
+                      }
+                      await refreshAndroidDiagnostics();
+                    }}
+                  >
+                    <Ionicons name="warning" size={18} color={colors.danger} />
+                    <View style={styles.diagTextWrap}>
+                      <Text style={styles.diagTitle}>Permiso de notificaciones bloqueado</Text>
+                      <Text style={styles.diagSub}>
+                        Toca aquí para permitir notificaciones en Android.
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                  </Pressable>
+                </>
+              )}
+
+              {Platform.OS === 'android' &&
+                androidDiag &&
+                androidDiag.notificationsGranted &&
+                !androidDiag.exactAlarmGranted && (
+                  <>
+                    <View style={styles.switchSectionDivider} />
+                    <Pressable
+                      style={styles.diagBanner}
+                      onPress={async () => {
+                        if (androidDiag.canAskExactAlarm) {
+                          await requestAndroidExactAlarmPermission();
+                        } else {
+                          await Linking.openSettings().catch(() => {});
+                        }
+                        await refreshAndroidDiagnostics();
+                      }}
+                    >
+                      <Ionicons name="alarm-outline" size={18} color={colors.warning} />
+                      <View style={styles.diagTextWrap}>
+                        <Text style={styles.diagTitle}>Activar alarmas exactas</Text>
+                        <Text style={styles.diagSub}>
+                          Permite que los recordatorios suenen puntualmente con la app cerrada.
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                    </Pressable>
+                  </>
+                )}
+
               <View style={styles.switchSectionDivider} />
               <View style={styles.advanceBlock}>
                 <View style={styles.advanceHeaderRow}>
@@ -702,5 +798,24 @@ const styles = StyleSheet.create({
   },
   advanceChipTextActive: {
     color: colors.textInverse,
+  },
+  diagBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  diagTextWrap: {
+    flex: 1,
+  },
+  diagTitle: {
+    ...typography.subhead,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  diagSub: {
+    ...typography.footnote,
+    color: colors.textSecondary,
+    marginTop: 1,
   },
 });

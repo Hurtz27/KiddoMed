@@ -3,9 +3,9 @@
 > **Documento vivo (Single Source of Truth):** Este archivo documenta la arquitectura, el modelo de datos, el alcance y las decisiones técnicas tomadas en **HL KiddoMed** hasta la fecha. Debe actualizarse en el mismo cambio cada vez que se tome una decisión arquitectónica, cambie el estado de una fase o se ajuste el alcance.
 
 * **Proyecto:** HL KiddoMed (`hl-kiddomed`)
-* **Versión actual:** `1.0.0`
+* **Versión actual:** `1.0.5`
 * **Repositorio:** [Hurtz27/KiddoMed](https://github.com/Hurtz27/KiddoMed)
-* **Última actualización:** 2026-11-16
+* **Última actualización:** 2026-11-18
 
 ---
 
@@ -55,7 +55,7 @@ La estructura en Cloud Firestore se organiza bajo un árbol multi-tenant por fam
     5. `settings.tsx` (**Familia**): Cambio/adición de múltiples familias, invitaciones, roles y gestión de sesión familiar.
   * `modals/`: `apply-dose.tsx`, `add-treatment.tsx`, `add-illness.tsx`, `add-symptom.tsx`, `add-member.tsx`, `add-family.tsx`.
 * **Estado Global (`src/context/KiddoMedContext.tsx`)**: Soporte multi-familia (`families`, `addOrSelectFamily`, `switchFamily`, `leaveFamily`), suscripciones en tiempo real (`onSnapshot`), hidratación desde caché por familia (`kiddomed_v2_cache_<familyId>`), y reprogramación automática de recordatorios locales al cambiar `treatments` o `members`.
-* **Servicios y Utilidades (`src/services/`, `src/utils/`)**: `kiddomed.ts` (CRUD completo, borrado en cascada por lotes y `revertDoseLogTransaction`), `cache.ts` (migración automática de sesión única a multi-familia), `notifications.ts`, `exportPdf.ts`, `formatting.ts` (`getTreatmentProgress`) y `schedule.ts` (`buildTreatmentSchedule`).
+* **Servicios y Utilidades (`src/services/`, `src/utils/`)**: `kiddomed.ts` (CRUD completo, borrado en cascada por lotes y `revertDoseLogTransaction`), `cache.ts` (migración automática de sesión única a multi-familia), `notifications.ts` (canal Android `medications_alarm_v2`, entrega `alarmClock` y diagnóstico de permisos de alarma exacta), `exportPdf.ts`, `alert.ts` (`showAlert` multiplataforma para nativo y web), `formatting.ts` (`getTreatmentProgress`) y `schedule.ts` (`buildTreatmentSchedule`).
 * **Sistema de Diseño (`src/theme/tokens.ts` y `src/components/`)**: Paleta y tipografía inspiradas en Apple HIG, `MEMBER_COLOR_PALETTE`, `FamilySwitcherBar`, `FamilyAccessForm`, `IllnessForm` y UI primitives (`Card`, `PillButton`, `StatusBanner`, `ChipGroup`, `FormField`, `GroupedListRow`, `HeroDoseCard`, `QuickActionTile`, `SegmentedControl`, `SlotDoseModal`, `WeekStrip`).
 
 ---
@@ -107,3 +107,4 @@ La estructura en Cloud Firestore se organiza bajo un árbol multi-tenant por fam
 |---|---|---|
 | 2026-11-16 | Creación inicial de `docs/master_plan.md` y ADRs `0001`–`0004` documentando todas las decisiones arquitectónicas y de producto tomadas hasta la fecha. | Usuario + Asistente |
 | 2026-11-16 | Actualización de `docs/master_plan.md` y creación de ADR `0005` documentando soporte multi-familia, CRUD completo con borrado en cascada, reversión de dosis, agenda de 7 días, pestaña `Notas`, `firestore.rules` en raíz y configuración EAS (`app.json`/`eas.json`). | Usuario + Asistente |
+| 2026-11-18 | Release `v1.0.5`: helper multiplataforma `showAlert` (`src/utils/alert.ts`), alarmas exactas Android (`SCHEDULE_EXACT_ALARM`, `alarmClock` y diagnóstico en Ajustes), ajuste de safe-area en barra de pestañas y actualización de `firebase.json`. | Usuario + Asistente |

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Alert, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { isFirebaseConfigured } from '../lib/firebase';
 import { createFamilyAccount, joinFamilyByInviteCode } from '../services/kiddomed';
 import { colors, spacing, typography } from '../theme/tokens';
 import { FamilySession, RelationshipType } from '../types/database';
+import { showAlert } from '../utils/alert';
 import { Card } from './ui/Card';
 import { ChipGroup, ChipOption } from './ui/ChipGroup';
 import { FormField } from './ui/FormField';
@@ -46,7 +47,7 @@ export function FamilyAccessForm({
 
   async function handleSubmit() {
     if (!isFirebaseConfigured) {
-      Alert.alert(
+      showAlert(
         'Falta configurar Firebase',
         'Agrega las variables EXPO_PUBLIC_FIREBASE_* en tu archivo .env.'
       );
@@ -55,11 +56,11 @@ export function FamilyAccessForm({
 
     if (mode === 'create') {
       if (!familyName.trim() || !displayName.trim()) {
-        Alert.alert('Campos requeridos', 'Ingresa el nombre de tu familia y tu nombre.');
+        showAlert('Campos requeridos', 'Ingresa el nombre de tu familia y tu nombre.');
         return;
       }
     } else if (!inviteCode.trim()) {
-      Alert.alert('Código requerido', 'Ingresa el código de invitación que te compartieron.');
+      showAlert('Código requerido', 'Ingresa el código de invitación que te compartieron.');
       return;
     }
 
@@ -71,7 +72,7 @@ export function FamilyAccessForm({
           : await joinFamilyByInviteCode(inviteCode);
       await onSuccess(session);
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'No se pudo completar el acceso.');
+      showAlert('Error', err instanceof Error ? err.message : 'No se pudo completar el acceso.');
     } finally {
       setLoading(false);
     }
