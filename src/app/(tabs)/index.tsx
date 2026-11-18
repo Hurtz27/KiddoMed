@@ -5,10 +5,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
@@ -37,17 +39,41 @@ export default function TreatmentScheduleScreen() {
   } = useKiddoMed();
 
   const [filterId, setFilterId] = useState<'all' | string>('all');
+  const [showApplied, setShowApplied] = useState(true);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
   const [overdueExpanded, setOverdueExpanded] = useState(true);
   const [prnExpanded, setPrnExpanded] = useState(true);
   const [activeSlotGroup, setActiveSlotGroup] = useState<MemberSlotGroup | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
-  const [, setTick] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
-  // Refresh relative countdowns every 30s
+  // Refresh schedule and relative countdowns on every minute boundary and when returning to foreground
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30_000);
-    return () => clearInterval(id);
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNextMinute = () => {
+      if (timerId) clearTimeout(timerId);
+      const now = Date.now();
+      const msUntilNextMinute = 60_000 - (now % 60_000) + 50;
+      timerId = setTimeout(() => {
+        setNowMs(Date.now());
+        scheduleNextMinute();
+      }, msUntilNextMinute);
+    };
+
+    scheduleNextMinute();
+
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        setNowMs(Date.now());
+        scheduleNextMinute();
+      }
+    });
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      sub.remove();
+    };
   }, []);
 
   const selectedMember =
@@ -62,8 +88,9 @@ export default function TreatmentScheduleScreen() {
         members,
         doseLogs,
         memberFilterId: filterId,
+        nowMs,
       }),
-    [treatments, illnesses, members, doseLogs, filterId]
+    [treatments, illnesses, members, doseLogs, filterId, nowMs]
   );
 
   // Default Today and Tomorrow to expanded
@@ -291,6 +318,33 @@ export default function TreatmentScheduleScreen() {
           </ScrollView>
         )}
 
+        {/* Elección para mostrar u ocultar dosis ya aplicadas */}
+        <Pressable
+          style={styles.appliedToggleRow}
+          onPress={() => {
+            Haptics.selectionAsync().catch(() => {});
+            setShowApplied((v) => !v);
+          }}
+        >
+          <View style={styles.appliedToggleLeft}>
+            <Ionicons
+              name={showApplied ? 'eye-outline' : 'eye-off-outline'}
+              size={16}
+              color={showApplied ? colors.primary : colors.textSecondary}
+            />
+            <Text style={styles.appliedToggleText}>Mostrar dosis aplicadas</Text>
+          </View>
+          <Switch
+            value={showApplied}
+            onValueChange={(v) => {
+              Haptics.selectionAsync().catch(() => {});
+              setShowApplied(v);
+            }}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor={colors.surface}
+          />
+        </Pressable>
+
         {isOffline && (
           <StatusBanner
             tone="warning"
@@ -350,6 +404,20 @@ export default function TreatmentScheduleScreen() {
         <View style={styles.section}>
           {schedule.days.map((day, idx) => {
             const expanded = isDayExpanded(day.dateKey, idx);
+            const visibleSlots = showApplied
+              ? day.slots
+              : day.slots
+                  .map((slot) => ({
+                    ...slot,
+                    memberGroups: slot.memberGroups
+                      .filter((g) => g.pendingCount > 0)
+                      .map((g) => ({
+                        ...g,
+                        doses: g.doses.filter((d) => d.status !== 'applied'),
+                      })),
+                  }))
+                  .filter((slot) => slot.memberGroups.length > 0);
+
             return (
               <View key={day.dateKey} style={styles.dayBlock}>
                 <Pressable
@@ -377,15 +445,17 @@ export default function TreatmentScheduleScreen() {
 
                 {expanded && (
                   <View style={styles.dayBody}>
-                    {day.slots.length === 0 ? (
+                    {visibleSlots.length === 0 ? (
                       <Card style={styles.emptyDayCard}>
                         <Ionicons name="checkmark-circle-outline" size={20} color={colors.success} />
                         <Text style={styles.emptyDayText}>
-                          Sin dosis programadas para este día.
+                          {!showApplied && day.appliedDoses > 0 && day.pendingDoses === 0
+                            ? 'Todas las dosis de este día ya fueron aplicadas.'
+                            : 'Sin dosis programadas para este día.'}
                         </Text>
                       </Card>
                     ) : (
-                      day.slots.map((slot) => {
+                      visibleSlots.map((slot) => {
                         const isOverlapping = slot.memberGroups.length > 1;
                         return (
                           <View key={slot.slotKey} style={styles.timeRow}>
@@ -610,6 +680,28 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: colors.textInverse,
+  },
+  appliedToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    marginBottom: spacing.xs,
+  },
+  appliedToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  appliedToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
   },
   bannerSpacing: {
     marginTop: spacing.sm,
