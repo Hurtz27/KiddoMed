@@ -1,33 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../../theme/tokens';
+import { ConnectionBanner } from '../../components/ui/ConnectionBanner';
+import { colors, spacing } from '../../theme/tokens';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const bottomInset = Platform.OS === 'web' ? Math.max(insets.bottom, 12) : insets.bottom;
 
+  const tabBarHeight = 54 + bottomInset;
+
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textTertiary,
-        tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          borderTopWidth: 0.5,
-          paddingBottom: bottomInset,
-          height: 54 + bottomInset,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-        },
-      }}
-    >
+    <View style={{ flex: 1 }}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.textTertiary,
+          tabBarStyle: {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.border,
+            borderTopWidth: 0.5,
+            paddingBottom: bottomInset,
+            height: tabBarHeight,
+          },
+          tabBarLabelStyle: {
+            fontSize: 11,
+            fontWeight: '600',
+          },
+        }}
+      >
       <Tabs.Screen
         name="index"
         options={{
@@ -93,6 +97,8 @@ export default function TabsLayout() {
           ),
         }}
       />
-    </Tabs>
+      </Tabs>
+      <ConnectionBanner bottomOffset={tabBarHeight + spacing.sm} />
+    </View>
   );
 }

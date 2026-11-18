@@ -29,7 +29,6 @@ export default function TreatmentScheduleScreen() {
   const {
     session,
     isCaregiver,
-    isOffline,
     members,
     illnesses,
     treatments,
@@ -344,15 +343,6 @@ export default function TreatmentScheduleScreen() {
             thumbColor={colors.surface}
           />
         </Pressable>
-
-        {isOffline && (
-          <StatusBanner
-            tone="warning"
-            icon="cloud-offline"
-            message="Modo sin conexión: mostrando los últimos datos guardados."
-            style={styles.bannerSpacing}
-          />
-        )}
 
         {selectedMember && selectedMember.allergies.length > 0 && (
           <StatusBanner
@@ -775,6 +765,7 @@ const styles = StyleSheet.create({
   },
   slotBoxesRow: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     gap: spacing.sm,
   },
@@ -783,6 +774,7 @@ const styles = StyleSheet.create({
   },
   slotScroll: {
     flex: 1,
+    minWidth: 0,
   },
   slotScrollContent: {
     gap: spacing.sm,
@@ -791,16 +783,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderLeftWidth: 4,
     padding: spacing.sm + 2,
+    overflow: 'hidden',
   },
   slotBoxApplied: {
     opacity: 0.72,
   },
   slotBoxFull: {
     flex: 1,
+    minWidth: 0,
   },
   slotBoxShared: {
     flex: 1,
-    minWidth: 132,
+    minWidth: 0,
   },
   slotBoxHeader: {
     flexDirection: 'row',
@@ -813,6 +807,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
     flex: 1,
+    minWidth: 0,
   },
   slotDot: {
     width: 8,
@@ -823,6 +818,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     flex: 1,
+    minWidth: 0,
   },
   countBadge: {
     minWidth: 20,

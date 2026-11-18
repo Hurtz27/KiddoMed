@@ -1,5 +1,6 @@
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import {
   loadFamiliesState,
@@ -25,9 +26,12 @@ import {
   TreatmentItem,
 } from '../types/database';
 
+export type SyncStatus = 'connecting' | 'online' | 'reconnecting' | 'error';
+
 interface KiddoMedContextValue {
   isReady: boolean;
   isOffline: boolean;
+  syncStatus: SyncStatus;
   families: FamilySession[];
   session: FamilySession | null;
   isCaregiver: boolean;
@@ -50,14 +54,52 @@ interface KiddoMedContextValue {
   toggleMemberNotifications: (memberId: string, enabled: boolean) => Promise<void>;
   setNotificationAdvanceMinutes: (minutes: number) => Promise<void>;
   syncError: string | null;
+  retrySync: () => void;
 }
 
 const KiddoMedContext = createContext<KiddoMedContextValue | null>(null);
 
+function formatSyncError(err: unknown): { status: 'reconnecting' | 'error'; message: string } {
+  const raw = err instanceof Error ? err.message : String(err ?? '');
+  const lower = raw.toLowerCase();
+
+  if (lower.includes('permission-denied') || lower.includes('insufficient permissions')) {
+    return {
+      status: 'error',
+      message: 'Sin permisos de sincronización. Vuelve a unirte con tu código de invitación.',
+    };
+  }
+
+  if (
+    lower.includes('unavailable') ||
+    lower.includes('network') ||
+    lower.includes('offline') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('deadline-exceeded')
+  ) {
+    return {
+      status: 'reconnecting',
+      message: 'Sin conexión a internet. Esperando reconexión...',
+    };
+  }
+
+  return {
+    status: 'reconnecting',
+    message: raw ? `Error de conexión (${raw}). Esperando reconexión...` : 'Sin conexión. Esperando reconexión...',
+  };
+}
+
 export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('connecting');
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncTick, setSyncTick] = useState(0);
+
+  const retrySync = useCallback(() => {
+    setSyncStatus('connecting');
+    setSyncTick((t) => t + 1);
+  }, []);
 
   const [families, setFamilies] = useState<FamilySession[]>([]);
   const [activeFamilyId, setActiveFamilyId] = useState<string | null>(null);
@@ -161,7 +203,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
 
   // Guardar caché de lectura ante cambios de la familia activa
   useEffect(() => {
-    if (!session) return;
+    if (!isReady || !session) return;
     void saveReadCache(session.family_id, {
       members,
       illnesses,
@@ -170,7 +212,17 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       symptomLogs,
       updatedAt: new Date().toISOString(),
     });
-  }, [session, members, illnesses, treatments, doseLogs, symptomLogs]);
+  }, [isReady, session, members, illnesses, treatments, doseLogs, symptomLogs]);
+
+  // Reintentar sincronización automáticamente al volver a primer plano si hubo fallo de red
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && (isOffline || syncError)) {
+        setSyncTick((t) => t + 1);
+      }
+    });
+    return () => sub.remove();
+  }, [isOffline, syncError]);
 
   // Listeners en tiempo real de Firestore para la familia activa
   const activeSessionFamilyId = session?.family_id ?? null;
@@ -181,6 +233,23 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
     const currentFamilyId = activeSessionFamilyId;
     let unsubs: (() => void)[] = [];
     let cancelled = false;
+    let serverConfirmed = false;
+
+    const connectTimer = setTimeout(() => {
+      if (!cancelled && !serverConfirmed) {
+        setIsOffline(true);
+        setSyncStatus('reconnecting');
+        setSyncError('No hay conexión o la red está lenta. Esperando reconexión...');
+      }
+    }, 6000);
+
+    const handleSnapshotError = (err: Error) => {
+      if (cancelled) return;
+      const formatted = formatSyncError(err);
+      setIsOffline(true);
+      setSyncStatus(formatted.status);
+      setSyncError(formatted.message);
+    };
 
     async function subscribe() {
       try {
@@ -191,54 +260,74 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
 
         const unsubMembers = onSnapshot(
           query(collection(db, `${base}/members`), orderBy('created_at', 'asc')),
+          { includeMetadataChanges: true },
           (snap) => {
-            const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as FamilyMember);
-            setMembers(list);
-            setSelectedMemberId((prev) =>
-              prev && list.some((m) => m.id === prev) ? prev : list[0]?.id ?? null
-            );
-            setIsOffline(false);
-            setSyncError(null);
+            if (!(snap.metadata.fromCache && snap.empty)) {
+              const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as FamilyMember);
+              setMembers(list);
+              setSelectedMemberId((prev) =>
+                prev && list.some((m) => m.id === prev) ? prev : list[0]?.id ?? null
+              );
+            }
+
+            if (!snap.metadata.fromCache) {
+              serverConfirmed = true;
+              clearTimeout(connectTimer);
+              setIsOffline(false);
+              setSyncStatus('online');
+              setSyncError(null);
+            } else if (serverConfirmed) {
+              setIsOffline(true);
+              setSyncStatus('reconnecting');
+              setSyncError('Conexión interrumpida. Esperando reconexión...');
+            }
           },
-          (err) => {
-            setIsOffline(true);
-            setSyncError(err.message);
-          }
+          handleSnapshotError
         );
 
         const unsubIllnesses = onSnapshot(
           query(collection(db, `${base}/illnesses`), orderBy('diagnosed_at', 'desc')),
           (snap) => {
+            if (snap.metadata.fromCache && snap.empty) return;
             setIllnesses(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Illness));
-          }
+          },
+          handleSnapshotError
         );
 
         const unsubTreatments = onSnapshot(
           query(collection(db, `${base}/treatments`), orderBy('created_at', 'desc')),
           (snap) => {
+            if (snap.metadata.fromCache && snap.empty) return;
             setTreatments(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as TreatmentItem));
-          }
+          },
+          handleSnapshotError
         );
 
         const unsubDoses = onSnapshot(
           query(collection(db, `${base}/dose_logs`), orderBy('administered_at', 'desc')),
           (snap) => {
+            if (snap.metadata.fromCache && snap.empty) return;
             setDoseLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as DoseLog));
-          }
+          },
+          handleSnapshotError
         );
 
         const unsubSymptoms = onSnapshot(
           query(collection(db, `${base}/symptom_logs`), orderBy('recorded_at', 'desc')),
           (snap) => {
+            if (snap.metadata.fromCache && snap.empty) return;
             setSymptomLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as SymptomLog));
-          }
+          },
+          handleSnapshotError
         );
 
         unsubs = [unsubMembers, unsubIllnesses, unsubTreatments, unsubDoses, unsubSymptoms];
       } catch (err) {
         if (!cancelled) {
+          const formatted = formatSyncError(err);
           setIsOffline(true);
-          setSyncError(err instanceof Error ? err.message : 'Error de conexión con Firebase.');
+          setSyncStatus(formatted.status);
+          setSyncError(formatted.message);
         }
       }
     }
@@ -247,9 +336,10 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       cancelled = true;
+      clearTimeout(connectTimer);
       unsubs.forEach((u) => u());
     };
-  }, [activeSessionFamilyId]);
+  }, [activeSessionFamilyId, syncTick]);
 
   const addOrSelectFamily = useCallback(
     async (newSession: FamilySession) => {
@@ -348,6 +438,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
     () => ({
       isReady,
       isOffline,
+      syncStatus,
       families,
       session,
       isCaregiver,
@@ -370,10 +461,12 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       toggleMemberNotifications,
       setNotificationAdvanceMinutes,
       syncError,
+      retrySync,
     }),
     [
       isReady,
       isOffline,
+      syncStatus,
       families,
       session,
       isCaregiver,
@@ -395,6 +488,7 @@ export function KiddoMedProvider({ children }: { children: React.ReactNode }) {
       toggleMemberNotifications,
       setNotificationAdvanceMinutes,
       syncError,
+      retrySync,
     ]
   );
 

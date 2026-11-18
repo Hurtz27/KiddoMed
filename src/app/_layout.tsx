@@ -1,7 +1,9 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KiddoMedProvider, useKiddoMed } from '../context/KiddoMedContext';
 import { colors } from '../theme/tokens';
@@ -88,6 +90,20 @@ function NavigationGuard() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts(
+    Platform.OS === 'web'
+      ? { Ionicons: '/fonts/Ionicons.ttf?v=2' }
+      : Ionicons.font
+  );
+
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View style={styles.splash}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <KiddoMedProvider>

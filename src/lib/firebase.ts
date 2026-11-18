@@ -7,7 +7,7 @@ import {
   // @ts-expect-error getReactNativePersistence exists in the RN bundle of firebase/auth
   getReactNativePersistence,
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { Firestore, getFirestore, initializeFirestore } from 'firebase/firestore';
 import { Platform } from 'react-native';
 
 const firebaseConfig = {
@@ -39,5 +39,20 @@ function createFirebaseAuth(): Auth {
   }
 }
 
+function createFirestoreDb(): Firestore {
+  if (Platform.OS === 'web') {
+    return getFirestore(app);
+  }
+  try {
+    // En React Native, WebChannel suele colgarse o perder paquetes en datos móviles (NAT/IPv6).
+    // Long-polling fuerza transporte HTTP estándar mucho más estable en redes celulares.
+    return initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+    });
+  } catch {
+    return getFirestore(app);
+  }
+}
+
 export const auth = createFirebaseAuth();
-export const db = getFirestore(app);
+export const db = createFirestoreDb();

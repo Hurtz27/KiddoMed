@@ -32,15 +32,26 @@ import {
 import { calculateEndDateIso } from '../utils/formatting';
 import { saveFamilySession } from './cache';
 
+let pendingAuthPromise: Promise<string> | null = null;
+
 export async function ensureAnonymousAuth(): Promise<string> {
   if (!isFirebaseConfigured) {
     throw new Error('FIREBASE_NOT_CONFIGURED');
   }
+  // Esperar a que Firebase Auth termine de restaurar la sesión persistida en AsyncStorage
+  // antes de decidir si hace falta crear una sesión anónima nueva.
+  await auth.authStateReady();
   if (auth.currentUser) {
     return auth.currentUser.uid;
   }
-  const cred = await signInAnonymously(auth);
-  return cred.user.uid;
+  if (!pendingAuthPromise) {
+    pendingAuthPromise = signInAnonymously(auth)
+      .then((cred) => cred.user.uid)
+      .finally(() => {
+        pendingAuthPromise = null;
+      });
+  }
+  return pendingAuthPromise;
 }
 
 export async function createFamilyAccount(params: {
